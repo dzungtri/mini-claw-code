@@ -18,21 +18,22 @@ The LLM never touches your filesystem. It *asks* your code to run tools — read
 
 This tutorial walks you through building one from scratch. **~300 lines of Rust. 7 chapters. No magic.**
 
-```text
-                        ┌─────────────────────┐
-  "Summarize doc.pdf"   │                     │
-  ───────────────────►  │    Your Agent        │
-                        │                     │
-                        │   ┌──► bash tool     │
-                        │   ├──► read tool     │
-                        │   ├──► write tool    │
-                        │   └──► edit tool     │
-                        │          │           │
-                        └──────────┼───────────┘
-                                   │
-                          LLM decides which
-                          tool to call, your
-                          code executes it
+```mermaid
+flowchart LR
+    U["You: 'Summarize doc.pdf'"] --> A["Your Agent"]
+    A <-->|prompt + tool defs| LLM
+    LLM -->|"tool_call: read('doc.pdf')"| A
+    A --> T["🔧 Tools"]
+    T --> A
+    A -->|final answer| U
+
+    subgraph T["🔧 Tools"]
+        direction TB
+        bash["bash"]
+        read["read"]
+        write["write"]
+        edit["edit"]
+    end
 ```
 
 ## What you'll build
@@ -46,6 +47,20 @@ By the end, you'll have a working agent that can:
 - Chain multiple tool calls in a loop until the task is done
 
 All driven by the same pattern Claude Code, Cursor, and OpenCode use under the hood.
+
+## The agent loop
+
+This is the core of every coding agent — yours included:
+
+```mermaid
+flowchart TD
+    A["👤 User prompt"] --> B["🤖 LLM"]
+    B -->|"StopReason::Stop"| C["✅ Return text"]
+    B -->|"StopReason::ToolUse"| D["🔧 Execute tool calls"]
+    D -->|"feed results back"| B
+```
+
+The LLM tells you what to do next. You just match on `StopReason` and follow instructions.
 
 ## How it works
 
@@ -61,11 +76,29 @@ Each chapter builds one piece. Tests verify your work — no API key needed unti
 | **6** | `OpenRouterProvider` | HTTP to a real LLM (OpenAI-compatible API) |
 | **7** | CLI chat app | Wire it all together in ~15 lines |
 
+```mermaid
+flowchart LR
+    C1["Ch1\nCore Types"] --> C2["Ch2\nFirst Tool"]
+    C2 --> C3["Ch3\nSingle Turn"]
+    C3 --> C4["Ch4\nMore Tools"]
+    C4 --> C5["Ch5\nAgent Loop"]
+    C5 --> C6["Ch6\nHTTP Provider"]
+    C6 --> C7["Ch7\nCLI App"]
+
+    style C1 fill:#2d333b,stroke:#539bf5,color:#adbac7
+    style C2 fill:#2d333b,stroke:#539bf5,color:#adbac7
+    style C3 fill:#2d333b,stroke:#539bf5,color:#adbac7
+    style C4 fill:#2d333b,stroke:#539bf5,color:#adbac7
+    style C5 fill:#2d333b,stroke:#539bf5,color:#adbac7
+    style C6 fill:#2d333b,stroke:#539bf5,color:#adbac7
+    style C7 fill:#2d333b,stroke:#539bf5,color:#adbac7
+```
+
 ## Quick start
 
 ```bash
-git clone <repo-url>
-cd <project-dir>
+git clone https://github.com/odysa/mini-code.git
+cd mini-code
 cargo build
 ```
 
@@ -76,7 +109,7 @@ cargo install mdbook mdbook-mermaid   # one-time setup
 cargo x book                          # opens at localhost:3000
 ```
 
-Or just read `mini-code-book/src/ch00-overview.md` directly.
+Or read the book online at [odysa.github.io/mini-code](https://odysa.github.io/mini-code/).
 
 ## The workflow
 
@@ -91,7 +124,7 @@ Green tests = you got it.
 
 ## Project structure
 
-```text
+```
 mini-code-starter/     ← YOUR code (fill in the stubs)
 mini-code/             ← Reference solution (no peeking!)
 mini-code-book/        ← The tutorial book (7 chapters)
