@@ -1,17 +1,18 @@
-// Chapter 7: Putting It Together
+// Chapter 7: The CLI
 //
-// Build a CLI that takes a prompt as a command-line argument and runs the agent.
+// Build an interactive CLI that reads prompts in a loop and runs the agent.
 //
 // Steps:
-// 1. Import types: use mini_code_starter::{BashTool, EditTool, OpenRouterProvider, ReadTool, SimpleAgent, WriteTool};
+// 1. Import types: BashTool, EditTool, Message, OpenRouterProvider, ReadTool, SimpleAgent, WriteTool
 // 2. Create an OpenRouterProvider using from_env()
 // 3. Build a SimpleAgent with all four tools (Bash, Read, Write, Edit)
-// 4. Read the prompt from command-line args (or use a default)
-// 5. Call agent.run() and print the result
+// 4. Create a Vec<Message> to hold the conversation history
+// 5. Loop: print "> ", read a line from stdin, push Message::User, call agent.chat(), print result
+// 6. Break on EOF (Ctrl+D)
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     unimplemented!(
-        "Add imports, create provider, build agent with tools, get prompt from args, run agent, print result"
+        "Create provider, build agent with tools, loop reading stdin, push to history, call chat(), print result"
     )
 }

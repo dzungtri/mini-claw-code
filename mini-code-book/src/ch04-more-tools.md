@@ -1,7 +1,5 @@
 # Chapter 4: More Tools
 
-> **WIP — This chapter is not yet available.**
-
 You have already implemented `ReadTool` and understand the `Tool` trait pattern.
 Now you will implement three more tools: `BashTool`, `WriteTool`, and `EditTool`.
 Each follows the same structure -- define a schema, implement `call()` -- so this
@@ -271,6 +269,6 @@ internally -- it only needs the definition (to tell the LLM) and the call method
 ## What's next
 
 With a provider and four tools ready, it is time to connect them. In
-[Chapter 5: The Agent Loop](./ch05-agent-loop.md) you will build the
+[Chapter 5: Your First Agent SDK!](./ch05-agent-loop.md) you will build the
 `SimpleAgent` -- the core loop that sends prompts to the provider, executes
 tool calls, and iterates until the LLM gives a final answer.

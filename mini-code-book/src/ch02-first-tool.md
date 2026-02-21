@@ -105,9 +105,10 @@ ToolDefinition::new("read", "Read the contents of a file.")
     .param("path", "string", "The file path to read", true)
 ```
 
-### Step 2: Implement `definition()`
+### Step 2: `definition()` -- already provided
 
-This is a one-liner: return `&self.definition`.
+The `definition()` method is already implemented in the starter -- it simply
+returns `&self.definition`. No work needed here.
 
 ### Step 3: Implement `call()`
 

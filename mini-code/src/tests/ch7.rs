@@ -618,3 +618,87 @@ async fn test_ch7_overwrite_file() {
     assert!(result.contains("version 2"));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "version 2");
 }
+
+// --- chat() tests ---
+
+#[tokio::test]
+async fn test_ch7_chat_basic() {
+    let provider = MockProvider::new(VecDeque::from([AssistantTurn {
+        text: Some("Hello!".into()),
+        tool_calls: vec![],
+        stop_reason: StopReason::Stop,
+    }]));
+
+    let agent = SimpleAgent::new(provider);
+    let mut messages = vec![Message::User("Hi".into())];
+    let result = agent.chat(&mut messages).await.unwrap();
+
+    assert_eq!(result, "Hello!");
+    // Messages should contain User + Assistant
+    assert_eq!(messages.len(), 2);
+    assert!(matches!(&messages[0], Message::User(t) if t == "Hi"));
+    assert!(matches!(&messages[1], Message::Assistant(_)));
+}
+
+#[tokio::test]
+async fn test_ch7_chat_with_tool_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("chat_tool.txt");
+    std::fs::write(&path, "chat content").unwrap();
+
+    let provider = MockProvider::new(VecDeque::from([
+        AssistantTurn {
+            text: None,
+            tool_calls: vec![ToolCall {
+                id: "c1".into(),
+                name: "read".into(),
+                arguments: json!({"path": path.to_str().unwrap()}),
+            }],
+            stop_reason: StopReason::ToolUse,
+        },
+        AssistantTurn {
+            text: Some("File says: chat content".into()),
+            tool_calls: vec![],
+            stop_reason: StopReason::Stop,
+        },
+    ]));
+
+    let agent = SimpleAgent::new(provider).tool(ReadTool::new());
+    let mut messages = vec![Message::User("Read chat_tool.txt".into())];
+    let result = agent.chat(&mut messages).await.unwrap();
+
+    assert_eq!(result, "File says: chat content");
+    // User + Assistant(tool_call) + ToolResult + Assistant(final)
+    assert_eq!(messages.len(), 4);
+}
+
+#[tokio::test]
+async fn test_ch7_chat_multi_turn() {
+    // Simulate a two-turn conversation using chat()
+    let provider = MockProvider::new(VecDeque::from([
+        AssistantTurn {
+            text: Some("First reply".into()),
+            tool_calls: vec![],
+            stop_reason: StopReason::Stop,
+        },
+        AssistantTurn {
+            text: Some("Second reply".into()),
+            tool_calls: vec![],
+            stop_reason: StopReason::Stop,
+        },
+    ]));
+
+    let agent = SimpleAgent::new(provider);
+
+    // First turn
+    let mut messages = vec![Message::User("Turn 1".into())];
+    let result1 = agent.chat(&mut messages).await.unwrap();
+    assert_eq!(result1, "First reply");
+    assert_eq!(messages.len(), 2);
+
+    // Second turn -- push new user message onto existing history
+    messages.push(Message::User("Turn 2".into()));
+    let result2 = agent.chat(&mut messages).await.unwrap();
+    assert_eq!(result2, "Second reply");
+    assert_eq!(messages.len(), 4); // User + Assistant + User + Assistant
+}

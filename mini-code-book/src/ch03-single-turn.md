@@ -63,10 +63,14 @@ flowchart TD
     B --> C{"stop_reason?"}
     C -- "Stop" --> D["Return text"]
     C -- "ToolUse" --> E["Execute each tool call"]
-    E --> F["Push Assistant message"]
-    F --> G["Push ToolResult messages"]
-    G --> H["provider.chat() again"]
-    H --> I["Return final text"]
+    E --> F{"Tool error?"}
+    F -- "Ok" --> G["result = output"]
+    F -- "Err" --> H["result = error message"]
+    G --> I["Push Assistant message"]
+    H --> I
+    I --> J["Push ToolResult messages"]
+    J --> K["provider.chat() again"]
+    K --> L["Return final text"]
 ```
 
 The key difference from the full agent loop (Chapter 5) is that there is no
@@ -126,14 +130,33 @@ The tool-finding and execution logic is the same as what you will use in the
 agent loop (Chapter 5):
 
 ```rust
+println!("{}", tool_summary(call));
 let content = match tools.get(&call.name) {
-    Some(t) => t.call(call.arguments.clone()).await?,
+    Some(t) => t.call(call.arguments.clone()).await
+        .unwrap_or_else(|e| format!("error: {e}")),
     None => format!("error: unknown tool `{}`", call.name),
 };
 ```
 
-Note the graceful handling of unknown tools -- instead of crashing, you send
-an error message back to the LLM as a tool result.
+The `tool_summary()` helper prints each tool call to the terminal so you can
+see which tools the agent is using and what arguments it passed. For example,
+`[bash: ls -la]` or `[read: src/main.rs]`.
+
+### Error handling -- never crash the loop
+
+Notice that tool errors are **caught, not propagated**. The `.unwrap_or_else()`
+converts any error into a string like `"error: failed to read 'missing.txt'"`.
+This string is sent back to the LLM as a normal tool result. The LLM can then
+decide what to do -- try a different file, use another tool, or explain the
+problem to the user.
+
+The same applies to unknown tools -- instead of panicking, you send an error
+message back as a tool result.
+
+This is a key design principle: **the agent loop should never crash because of
+a tool failure**. Tools operate on the real world (files, processes, network),
+and failures are expected. The LLM is smart enough to recover if you give it
+the error message.
 
 Here is the message sequence for a successful tool call:
 
@@ -152,6 +175,28 @@ sequenceDiagram
     P-->>ST: Stop: "Here are the contents: ..."
     ST-->>ST: return text
 ```
+
+And here is what happens when a tool fails (e.g. file not found):
+
+```mermaid
+sequenceDiagram
+    participant ST as single_turn()
+    participant P as Provider
+    participant T as ReadTool
+
+    ST->>P: [User("Read missing.txt")] + tool defs
+    P-->>ST: ToolUse: read({path: "missing.txt"})
+    ST->>T: call({path: "missing.txt"})
+    T--xST: Err("failed to read 'missing.txt'")
+    Note over ST: Catch error, use as result
+    Note over ST: Push Assistant + ToolResult("error: failed to read ...")
+    ST->>P: [User, Assistant, ToolResult]
+    P-->>ST: Stop: "Sorry, that file doesn't exist."
+    ST-->>ST: return text
+```
+
+The error does not crash the agent. It becomes a tool result that the LLM
+reads and responds to.
 
 ## Running the tests
 
@@ -172,9 +217,13 @@ cargo test -p mini-code-starter ch3
   tool that does not exist. Verifies the error message is sent as a tool
   result and the final text is returned.
 
+- **`test_ch3_tool_error_propagates`**: Provider requests a `read` on a file
+  that does not exist. The error should be caught and sent back to the LLM as
+  a tool result (not crash the function). The LLM then responds with text.
+
 There are also additional edge-case tests (empty responses, multiple tool
-calls in one turn, tool errors, etc.) that will pass once your core
-implementation is correct.
+calls in one turn, etc.) that will pass once your core implementation is
+correct.
 
 ## Recap
 

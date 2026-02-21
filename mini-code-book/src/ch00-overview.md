@@ -1,12 +1,15 @@
 # Overview
 
-Welcome to *Build Your Own Mini Coding Agent in Rust*. Over the next seven chapters you will
+Welcome to *Build Your Own Mini Coding Agent in Rust*. Over the next eight chapters you will
 implement a mini coding agent from scratch -- a small version of programs like
 Claude Code or OpenCode -- a program that takes a prompt, talks to a
 large-language model (LLM), and uses *tools* to interact with the real world.
 
 By the end of this book you will have an agent that can run shell commands, read
-and write files, and edit code, all driven by an LLM.
+and write files, and edit code, all driven by an LLM. No API key is required
+until Chapter 6, and when you get there the default model is
+[`openrouter/free`](https://openrouter.ai/docs/guides/routing/routers/free-models-router)
+-- a zero-cost endpoint on OpenRouter, no credits needed.
 
 ## What is an AI agent?
 
@@ -218,9 +221,10 @@ directory containing the top-level `Cargo.toml`).
 | 2 | Your First Tool | `ReadTool` -- reading files |
 | 3 | Single Turn | `single_turn()` -- explicit match on `StopReason`, one round of tool calls |
 | 4 | More Tools | `BashTool`, `WriteTool`, `EditTool` |
-| 5 | The Agent Loop | `SimpleAgent` -- generalizes `single_turn()` into a loop |
-| 6 | The HTTP Provider | `OpenRouterProvider` -- talking to a real LLM API |
-| 7 | Putting It Together | A CLI that runs your agent end-to-end |
+| 5 | Your First Agent SDK! | `SimpleAgent` -- generalizes `single_turn()` into a loop |
+| 6 | The OpenRouter Provider | `OpenRouterProvider` -- talking to a real LLM API |
+| 7 | A Simple CLI | Wire everything into an interactive CLI with conversation memory |
+| 8 | The Singularity | Your agent can now code itself -- extensions and what's next |
 
 Each chapter follows the same rhythm:
 

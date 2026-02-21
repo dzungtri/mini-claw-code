@@ -56,8 +56,8 @@ classDiagram
     }
 
     class ToolDefinition {
-        name: &str
-        description: &str
+        name: &'static str
+        description: &'static str
         parameters: Value
     }
 
@@ -197,8 +197,27 @@ is used:
   different tool types. Trait objects require a uniform return type, which
   `#[async_trait]` provides by boxing the future.
 
+When implementing a trait that uses `impl Future`, you can simply write
+`async fn` in the `impl` block -- Rust desugars it to the `impl Future` form
+automatically. So while the trait *definition* says `-> impl Future<...>`,
+your *implementation* can just write `async fn chat(...)`.
+
 If this distinction is unclear now, it will click in Chapter 5 when you see
 both patterns in action.
+
+### `ToolSet` -- a collection of tools
+
+One more type you will use starting in Chapter 3: `ToolSet`. It wraps a
+`HashMap<String, Box<dyn Tool>>` and indexes tools by name, giving O(1)
+lookup when executing tool calls. You build one with a builder:
+
+```rust
+let tools = ToolSet::new()
+    .with(ReadTool::new())
+    .with(BashTool::new());
+```
+
+You do not need to implement `ToolSet` -- it is provided in `types.rs`.
 
 ## Implementing `MockProvider`
 

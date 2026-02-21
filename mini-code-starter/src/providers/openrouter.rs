@@ -111,7 +111,7 @@ impl OpenRouterProvider {
         )
     }
 
-    /// Create a provider from env with the default model `"openrouter/free"`.
+    /// Create a provider from env with the default model.
     pub fn from_env() -> anyhow::Result<Self> {
         unimplemented!("Call from_env_with_model with \"openrouter/free\"")
     }

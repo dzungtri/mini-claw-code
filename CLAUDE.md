@@ -42,7 +42,7 @@ cargo x book
 ## Architecture
 
 ### Core Types (`mini-code/src/types.rs`)
-- `Provider` trait — async interface for LLM backends (`complete` method takes messages + tool definitions)
+- `Provider` trait — async interface for LLM backends (`chat` method takes messages + tool definitions)
 - `Tool` trait — async interface for agent tools (`definition` returns JSON schema, `call` executes)
 - `Message` enum — `User`, `Assistant`, `ToolResult` variants forming the conversation history
 - `StopReason` — `Stop` (final answer) or `ToolUse` (needs tool execution)

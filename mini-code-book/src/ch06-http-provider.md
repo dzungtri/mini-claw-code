@@ -1,6 +1,4 @@
-# Chapter 6: The HTTP Provider
-
-> **WIP — This chapter is not yet available.**
+# Chapter 6: The OpenRouter Provider
 
 Up to now, everything has run locally with the `MockProvider`. In this chapter
 you will implement `OpenRouterProvider` -- a provider that talks to a real LLM
@@ -163,7 +161,8 @@ clear error message if the key is missing.
 ### Step 4: Implement `from_env()`
 
 This is a one-liner that calls `from_env_with_model` with the default model
-`"openrouter/free"`.
+`"openrouter/free"`. This is a free model on OpenRouter -- no credits needed
+to get started.
 
 ### Step 5: Implement `convert_messages()`
 
@@ -310,6 +309,5 @@ and the HTTP provider -- is implemented and tested.
 
 ## What's next
 
-In [Chapter 7: Putting It Together](./ch07-putting-together.md) you will write
-a small CLI that takes a prompt from the command line and runs the full agent
-end-to-end.
+In [Chapter 7: A Simple CLI](./ch07-putting-together.md) you will wire
+everything into an interactive CLI with conversation memory.

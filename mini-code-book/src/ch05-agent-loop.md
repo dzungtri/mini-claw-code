@@ -1,6 +1,4 @@
-# Chapter 5: The Agent Loop
-
-> **WIP — This chapter is not yet available.**
+# Chapter 5: Your First Agent SDK!
 
 This is the chapter where everything comes together. You have a provider that
 returns `AssistantTurn` responses and four tools that execute actions. Now you
@@ -8,6 +6,40 @@ will build the `SimpleAgent` -- the loop that connects them.
 
 This is the "aha!" moment of the tutorial. The agent loop is surprisingly
 short, but it is the engine that makes an LLM into an agent.
+
+## What is an agent loop?
+
+In Chapter 3 you built `single_turn()` -- one prompt, one round of tool calls,
+one final answer. That is enough when the LLM knows everything it needs after
+reading a single file. But real tasks are messier:
+
+> "Find the bug in this project and fix it."
+
+The LLM might need to read five files, run the test suite, edit a source file,
+run the tests again, and then report back. Each of those is a tool call, and
+the LLM cannot plan them all upfront because the result of one call determines
+the next. It needs a **loop**.
+
+The agent loop is that loop:
+
+```mermaid
+flowchart TD
+    A["User prompt"] --> B["Call LLM"]
+    B -- "StopReason::Stop" --> C["Return text"]
+    B -- "StopReason::ToolUse" --> D["Execute tool calls"]
+    D -- "Push assistant + tool results" --> B
+```
+
+1. Send messages to the LLM.
+2. If the LLM says "I'm done" (`StopReason::Stop`), return its text.
+3. If the LLM says "I need tools" (`StopReason::ToolUse`), execute them.
+4. Append the assistant turn and tool results to the message history.
+5. Go to step 1.
+
+That is the entire architecture of every coding agent -- Claude Code, Cursor,
+OpenCode, Copilot. The details vary (streaming, parallel tool calls, safety
+checks), but the core loop is always the same. And you are about to build it
+in about 30 lines of Rust.
 
 ## Goal
 
@@ -163,14 +195,36 @@ loop {
 For each tool call, look it up by name in the `ToolSet`:
 
 ```rust
+println!("{}", tool_summary(call));
 let content = match self.tools.get(&call.name) {
-    Some(t) => t.call(call.arguments.clone()).await?,
+    Some(t) => t.call(call.arguments.clone()).await
+        .unwrap_or_else(|e| format!("error: {e}")),
     None => format!("error: unknown tool `{}`", call.name),
 };
 ```
 
-If found, call it. If not, return an error string (do not crash -- let the LLM
-know the tool does not exist).
+The `tool_summary()` helper prints each tool call to the terminal -- one line
+per tool with its key argument, so you can watch what the agent does in real
+time. For example: `[bash: cat Cargo.toml]` or `[write: src/lib.rs]`.
+
+### Error handling
+
+Tool errors are caught with `.unwrap_or_else()` and converted into a string
+that gets sent back to the LLM as a tool result. This is the same pattern from
+Chapter 3, and it is critical here because the agent loop runs multiple
+iterations. If a tool error crashed the loop, the agent would die on the first
+missing file or failed command. Instead, the LLM sees the error and can
+recover -- try a different path, adjust the command, or explain the problem.
+
+```text
+> What's in README.md?
+[read: README.md]          <-- tool fails (file not found)
+[read: Cargo.toml]         <-- LLM recovers, tries another file
+Here is the project info from Cargo.toml...
+```
+
+Unknown tools are handled the same way -- an error string as the tool result,
+not a crash.
 
 ### Pushing messages
 
@@ -217,9 +271,13 @@ cargo test -p mini-code-starter ch5
 - **`test_ch5_builder_chain`**: Verifies that `.tool().tool()` chaining
   compiles -- a compile-time check for the builder pattern.
 
-There are also additional edge-case tests (three-step loops, tool error
-propagation, multi-tool pipelines, etc.) that will pass once your core
-implementation is correct.
+- **`test_ch5_tool_error_propagates`**: Provider requests a `read` on a file
+  that does not exist. The error should be caught and sent back as a tool
+  result. The LLM then responds with text. Verifies the loop does not crash
+  on tool failures.
+
+There are also additional edge-case tests (three-step loops, multi-tool
+pipelines, etc.) that will pass once your core implementation is correct.
 
 ## Seeing it all work
 
@@ -245,11 +303,12 @@ The agent loop is the core of the framework:
 - **Generics** (`<P: Provider>`) let it work with any provider.
 - **`ToolSet`** (a HashMap of `Box<dyn Tool>`) gives O(1) tool lookup by name.
 - **The builder pattern** makes setup ergonomic.
+- **Error resilience** -- tool errors are caught and sent back to the LLM, not propagated. The loop never crashes from a tool failure.
 - **The loop** is simple: call provider, match on `stop_reason`, execute tools, feed results back, repeat.
 
 ## What's next
 
 Your agent works, but only with the mock provider. In
-[Chapter 6: The HTTP Provider](./ch06-http-provider.md) you will implement
+[Chapter 6: The OpenRouter Provider](./ch06-http-provider.md) you will implement
 `OpenRouterProvider`, which talks to a real LLM API over HTTP. This is what
 turns your agent from a testing harness into a real, usable tool.

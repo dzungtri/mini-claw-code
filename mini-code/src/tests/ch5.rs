@@ -218,21 +218,28 @@ async fn test_ch5_provider_error() {
 
 #[tokio::test]
 async fn test_ch5_tool_error_propagates() {
-    // Tool call on a missing file propagates up
-    let provider = MockProvider::new(VecDeque::from([AssistantTurn {
-        text: None,
-        tool_calls: vec![ToolCall {
-            id: "call_1".into(),
-            name: "read".into(),
-            arguments: json!({"path": "/tmp/__mini_code_no_such_file_ch5__.txt"}),
-        }],
-        stop_reason: StopReason::ToolUse,
-    }]));
+    // Tool call on a missing file sends error back to LLM as tool result
+    let provider = MockProvider::new(VecDeque::from([
+        AssistantTurn {
+            text: None,
+            tool_calls: vec![ToolCall {
+                id: "call_1".into(),
+                name: "read".into(),
+                arguments: json!({"path": "/tmp/__mini_code_no_such_file_ch5__.txt"}),
+            }],
+            stop_reason: StopReason::ToolUse,
+        },
+        AssistantTurn {
+            text: Some("File not found".into()),
+            tool_calls: vec![],
+            stop_reason: StopReason::Stop,
+        },
+    ]));
 
     let agent = SimpleAgent::new(provider).tool(ReadTool::new());
-    let result = agent.run("Read missing").await;
+    let result = agent.run("Read missing").await.unwrap();
 
-    assert!(result.is_err());
+    assert_eq!(result, "File not found");
 }
 
 #[tokio::test]

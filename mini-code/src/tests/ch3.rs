@@ -169,21 +169,30 @@ async fn test_ch3_multiple_tool_calls_one_round() {
 
 #[tokio::test]
 async fn test_ch3_tool_error_propagates() {
-    // Tool call on a missing file should propagate the error
-    let provider = MockProvider::new(VecDeque::from([AssistantTurn {
-        text: None,
-        tool_calls: vec![ToolCall {
-            id: "call_1".into(),
-            name: "read".into(),
-            arguments: json!({"path": "/tmp/__mini_code_no_such_file_ch3__.txt"}),
-        }],
-        stop_reason: StopReason::ToolUse,
-    }]));
+    // Tool call on a missing file sends error back to LLM as tool result
+    let provider = MockProvider::new(VecDeque::from([
+        AssistantTurn {
+            text: None,
+            tool_calls: vec![ToolCall {
+                id: "call_1".into(),
+                name: "read".into(),
+                arguments: json!({"path": "/tmp/__mini_code_no_such_file_ch3__.txt"}),
+            }],
+            stop_reason: StopReason::ToolUse,
+        },
+        AssistantTurn {
+            text: Some("File not found".into()),
+            tool_calls: vec![],
+            stop_reason: StopReason::Stop,
+        },
+    ]));
 
     let tools = ToolSet::new().with(ReadTool::new());
-    let result = single_turn(&provider, &tools, "Read missing file").await;
+    let result = single_turn(&provider, &tools, "Read missing file")
+        .await
+        .unwrap();
 
-    assert!(result.is_err());
+    assert_eq!(result, "File not found");
 }
 
 #[tokio::test]

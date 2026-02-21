@@ -1,5 +1,21 @@
 use crate::types::*;
 
+/// Format a one-line summary of a tool call for terminal output.
+fn tool_summary(call: &ToolCall) -> String {
+    // Pick the most useful argument to display:
+    // "command" for bash, "path" for read/write/edit.
+    let detail = call
+        .arguments
+        .get("command")
+        .or_else(|| call.arguments.get("path"))
+        .and_then(|v| v.as_str());
+
+    match detail {
+        Some(s) => format!("    [{}: {}]", call.name, s),
+        None => format!("    [{}]", call.name),
+    }
+}
+
 /// Handle a single prompt with at most one round of tool calls.
 ///
 /// # Chapter 3: Single Turn
@@ -12,7 +28,8 @@ use crate::types::*;
 ///    - `StopReason::Stop` → return `turn.text.unwrap_or_default()`
 ///    - `StopReason::ToolUse` → for each tool call:
 ///      a. Look up tool with `tools.get(&call.name)`
-///      b. If found, call it. If not, return error string (don't crash).
+///      b. If found, call it. Catch errors with `.unwrap_or_else(|e| format!("error: {e}"))`.
+///      If not found, return error string. Never crash on tool failure.
 ///      c. Collect results BEFORE pushing `Message::Assistant(turn)` (ownership!)
 ///      d. Push `Message::Assistant(turn)` then `Message::ToolResult` for each result
 ///      e. Call provider again to get the final answer
@@ -55,6 +72,23 @@ impl<P: Provider> SimpleAgent<P> {
     pub async fn run(&self, _prompt: &str) -> anyhow::Result<String> {
         unimplemented!(
             "Loop: send messages to provider, match on stop_reason, execute tool calls, repeat until Stop"
+        )
+    }
+
+    /// Run the agent loop, accumulating into the provided message history.
+    ///
+    /// # Chapter 7: The CLI
+    ///
+    /// This is `run()` adapted for multi-turn conversation:
+    /// 1. The caller pushes `Message::User(…)` before calling
+    /// 2. The loop is the same as `run()` — provider → match → tools → repeat
+    /// 3. On `StopReason::Stop`, clone `turn.text` BEFORE pushing
+    ///    `Message::Assistant(turn)` (the push moves `turn`)
+    /// 4. Push the assistant turn into messages so the history is complete
+    /// 5. Return the cloned text
+    pub async fn chat(&self, _messages: &mut Vec<Message>) -> anyhow::Result<String> {
+        unimplemented!(
+            "Same loop as run(), but use the provided messages vec instead of creating a new one"
         )
     }
 }
