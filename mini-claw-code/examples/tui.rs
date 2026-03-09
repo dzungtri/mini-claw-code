@@ -232,7 +232,11 @@ async fn ui_event_loop(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let provider = OpenRouterProvider::from_env_with_model("anthropic/claude-sonnet-4-5")?;
+    let provider = if let Ok(model) = std::env::var("MODEL") {
+        OpenRouterProvider::from_env_with_model(model)?
+    } else {
+        OpenRouterProvider::from_env()?
+    };
 
     // Channel for AskTool → TUI communication
     let (input_tx, mut input_rx) = mpsc::unbounded_channel::<UserInputRequest>();
