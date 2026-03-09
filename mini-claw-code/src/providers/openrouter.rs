@@ -86,12 +86,17 @@ pub struct OpenRouterProvider {
 }
 
 impl OpenRouterProvider {
+    const OPENROUTER_BASE_URL: &'static str = "https://openrouter.ai/api/v1";
+    const OPENAI_BASE_URL: &'static str = "https://api.openai.com/v1";
+    const DEFAULT_OPENROUTER_MODEL: &'static str = "openrouter/free";
+    const DEFAULT_OPENAI_MODEL: &'static str = "gpt-4.1-mini";
+
     pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
             client: reqwest::Client::new(),
             api_key: api_key.into(),
             model: model.into(),
-            base_url: "https://openrouter.ai/api/v1".into(),
+            base_url: Self::OPENROUTER_BASE_URL.into(),
         }
     }
 
@@ -100,15 +105,48 @@ impl OpenRouterProvider {
         self
     }
 
+    fn read_non_empty_env(name: &str) -> Option<String> {
+        std::env::var(name)
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    }
+
     pub fn from_env_with_model(model: impl Into<String>) -> anyhow::Result<Self> {
         let _ = dotenvy::dotenv();
-        let api_key = std::env::var("OPENROUTER_API_KEY")
-            .context("OPENROUTER_API_KEY not found in environment or .env")?;
-        Ok(Self::new(api_key, model))
+        let model = model.into();
+
+        if let Some(api_key) = Self::read_non_empty_env("OPENROUTER_API_KEY") {
+            return Ok(Self::new(api_key, model));
+        }
+
+        if let Some(api_key) = Self::read_non_empty_env("OPENAI_API_KEY") {
+            return Ok(Self::new(api_key, model).base_url(Self::OPENAI_BASE_URL));
+        }
+
+        anyhow::bail!(
+            "No API key found. Set OPENROUTER_API_KEY or OPENAI_API_KEY in environment or .env"
+        )
     }
 
     pub fn from_env() -> anyhow::Result<Self> {
-        Self::from_env_with_model("openrouter/free")
+        let _ = dotenvy::dotenv();
+
+        if let Some(api_key) = Self::read_non_empty_env("OPENROUTER_API_KEY") {
+            let model = Self::read_non_empty_env("OPENROUTER_MODEL")
+                .unwrap_or_else(|| Self::DEFAULT_OPENROUTER_MODEL.to_string());
+            return Ok(Self::new(api_key, model));
+        }
+
+        if let Some(api_key) = Self::read_non_empty_env("OPENAI_API_KEY") {
+            let model = Self::read_non_empty_env("OPENAI_MODEL")
+                .unwrap_or_else(|| Self::DEFAULT_OPENAI_MODEL.to_string());
+            return Ok(Self::new(api_key, model).base_url(Self::OPENAI_BASE_URL));
+        }
+
+        anyhow::bail!(
+            "No API key found. Set OPENROUTER_API_KEY or OPENAI_API_KEY in environment or .env"
+        )
     }
 
     pub(crate) fn convert_messages(messages: &[Message]) -> Vec<ApiMessage> {
