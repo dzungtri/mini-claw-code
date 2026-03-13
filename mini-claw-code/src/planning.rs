@@ -6,11 +6,7 @@ use crate::agent::{AgentEvent, tool_summary};
 use crate::streaming::{StreamEvent, StreamProvider};
 use crate::types::*;
 
-const DEFAULT_PLAN_PROMPT: &str = "\
-You are in PLANNING MODE. Explore the codebase using the available tools and \
-create a plan. You can read files, run shell commands, and ask the user \
-questions — but you CANNOT write, edit, or create files.\n\n\
-When your plan is ready, call the `exit_plan` tool to submit it for review.";
+pub const DEFAULT_PLAN_PROMPT_TEMPLATE: &str = include_str!("../prompts/planning_prompt.md");
 
 /// A two-phase agent that separates planning (read-only) from execution (all tools).
 ///
@@ -34,7 +30,7 @@ impl<P: StreamProvider> PlanAgent<P> {
             provider,
             tools: ToolSet::new(),
             read_only: HashSet::from(["bash", "read", "ask_user"]),
-            plan_system_prompt: DEFAULT_PLAN_PROMPT.to_string(),
+            plan_system_prompt: DEFAULT_PLAN_PROMPT_TEMPLATE.to_string(),
             exit_plan_def: ToolDefinition::new(
                 "exit_plan",
                 "Signal that your plan is complete and ready for user review. \

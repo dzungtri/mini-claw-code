@@ -3,8 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mini_claw_code::{
-    AgentEvent, AskTool, BashTool, ChannelInputHandler, EditTool, Message, OpenRouterProvider,
-    PlanAgent, ReadTool, UserInputRequest, WriteTool,
+    AgentEvent, AskTool, BashTool, ChannelInputHandler, DEFAULT_PLAN_PROMPT_TEMPLATE,
+    EditTool, Message, OpenRouterProvider, PLAN_PROMPT_FILE_ENV, PlanAgent, ReadTool,
+    UserInputRequest, WriteTool, load_prompt_template,
 };
 use tokio::sync::mpsc;
 
@@ -241,9 +242,11 @@ async fn main() -> anyhow::Result<()> {
     // Channel for AskTool → TUI communication
     let (input_tx, mut input_rx) = mpsc::unbounded_channel::<UserInputRequest>();
     let handler = Arc::new(ChannelInputHandler::new(input_tx));
+    let plan_prompt = load_prompt_template(PLAN_PROMPT_FILE_ENV, DEFAULT_PLAN_PROMPT_TEMPLATE)?;
 
     let agent = Arc::new(
         PlanAgent::new(provider)
+            .plan_prompt(plan_prompt)
             .tool(BashTool::new())
             .tool(ReadTool::new())
             .tool(WriteTool::new())

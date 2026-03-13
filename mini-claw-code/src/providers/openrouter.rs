@@ -89,7 +89,7 @@ impl OpenRouterProvider {
     const OPENROUTER_BASE_URL: &'static str = "https://openrouter.ai/api/v1";
     const OPENAI_BASE_URL: &'static str = "https://api.openai.com/v1";
     const DEFAULT_OPENROUTER_MODEL: &'static str = "openrouter/free";
-    const DEFAULT_OPENAI_MODEL: &'static str = "gpt-4.1-mini";
+    const DEFAULT_OPENAI_MODEL: &'static str = "gpt-5-mini-2025-08-07";
 
     pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
         Self {

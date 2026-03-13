@@ -2,8 +2,9 @@ use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
 use mini_claw_code::{
-    AskTool, BashTool, CliInputHandler, EditTool, Message, OpenRouterProvider, ReadTool,
-    SimpleAgent, WriteTool,
+    AskTool, BashTool, CliInputHandler, DEFAULT_SYSTEM_PROMPT_TEMPLATE, EditTool,
+    Message, OpenRouterProvider, ReadTool, SYSTEM_PROMPT_FILE_ENV, SimpleAgent,
+    WriteTool, load_prompt_template,
 };
 
 #[tokio::main]
@@ -17,12 +18,10 @@ async fn main() -> anyhow::Result<()> {
         .tool(AskTool::new(Arc::new(CliInputHandler)));
 
     let cwd = std::env::current_dir()?.display().to_string();
+    let system_prompt = load_prompt_template(SYSTEM_PROMPT_FILE_ENV, DEFAULT_SYSTEM_PROMPT_TEMPLATE)?
+        .replace("{{cwd}}", &cwd);
     let stdin = io::stdin();
-    let mut history: Vec<Message> = vec![Message::System(format!(
-        "You are a coding agent. Help the user with software engineering tasks \
-         using all available tools. Be concise and precise.\n\n\
-         Working directory: {cwd}"
-    ))];
+    let mut history: Vec<Message> = vec![Message::System(system_prompt)];
 
     loop {
         print!("> ");
