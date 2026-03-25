@@ -1,5 +1,10 @@
 /target
 .env
 mini-claw-code-book/book/
+mini-claw-code-book-py/book/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
 .DS_Store
 *.tape

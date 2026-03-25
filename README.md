@@ -5,7 +5,7 @@
 <h1 align="center">Mini Claw Code</h1>
 
 <p align="center">
-  <strong>Build your own coding agent from scratch in Rust.</strong>
+  <strong>Build your own coding agent from scratch in Rust or Python.</strong>
 </p>
 
 <p align="center">
@@ -41,6 +41,11 @@ loop:
 The LLM never touches your filesystem. It *asks* your code to run tools — read a file, execute a command, edit code — and your code *does*. That loop is the entire idea.
 
 This tutorial builds that loop from scratch. **15 chapters. Test-driven. No magic.**
+
+There are now two parallel learning tracks in this repo:
+
+- **Rust track**: the original project, starter, and book
+- **Python track**: a full port for teams who prefer Python
 
 ```mermaid
 flowchart LR
@@ -148,10 +153,52 @@ This agent has **unrestricted shell access**. The `BashTool` passes LLM-generate
 ```bash
 git clone https://github.com/odysa/mini-claw-code.git
 cd mini-claw-code
+```
+
+## Choose your track
+
+### Python
+
+Best if your team is comfortable with Python and wants the same agent concepts
+without Rust-specific language features.
+
+```bash
+cd mini-claw-code-py
+python -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+PYTHONPATH=src .venv/bin/python -m pytest -q
+```
+
+Run the reference CLI:
+
+```bash
+cd mini-claw-code-py
+PYTHONPATH=src .venv/bin/python examples/chat.py
+```
+
+Work through the hands-on tutorial starter:
+
+```bash
+cd mini-claw-code-starter-py
+PYTHONPATH=src python -m pytest tests/test_ch1.py
+```
+
+Python book source:
+
+```text
+mini-claw-code-book-py/
+```
+
+### Rust
+
+Best if you want the original version and the most complete parity with the
+existing public book.
+
+```bash
 cargo build
 ```
 
-Start the tutorial book:
+Start the Rust tutorial book:
 
 ```bash
 cargo install mdbook mdbook-mermaid   # one-time
@@ -165,28 +212,49 @@ Or read it online at **[odysa.github.io/mini-claw-code](https://odysa.github.io/
 Every chapter follows the same rhythm:
 
 1. **Read** the chapter
-2. **Open** the matching file in `mini-claw-code-starter/src/`
+2. **Open** the matching file in the starter project
 3. **Replace** `unimplemented!()` with your code
-4. **Run** `cargo test -p mini-claw-code-starter chN`
+4. **Run** the chapter tests
 
 Green tests = you got it.
 
 ## Project structure
 
 ```
-mini-claw-code-starter/     <- YOUR code (fill in the stubs)
-mini-claw-code/             <- Reference solution (no peeking!)
-mini-claw-code-book/        <- The tutorial (15 chapters)
-mini-claw-code-xtask/       <- Helper commands (cargo x ...)
+mini-claw-code-starter/     <- Rust starter project
+mini-claw-code/             <- Rust reference implementation
+mini-claw-code-book/        <- Rust tutorial book source
+mini-claw-code-xtask/       <- Rust helper commands (cargo x ...)
+mini-claw-code-starter-py/  <- Python starter project
+mini-claw-code-py/          <- Python reference implementation
+mini-claw-code-book-py/     <- Python tutorial book source
 ```
 
 ## Prerequisites
 
-- **Rust 1.85+** — [rustup.rs](https://rustup.rs)
-- Basic Rust knowledge (ownership, enums, `Result`/`Option`)
-- No API key until Chapter 6
+- **Python track**: Python 3.11+
+- **Rust track**: Rust 1.85+ — [rustup.rs](https://rustup.rs)
+- No API key until the HTTP provider chapter
 
 ## Commands
+
+Python:
+
+```bash
+cd mini-claw-code-py
+python -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+PYTHONPATH=src .venv/bin/python -m pytest -q
+```
+
+Python starter:
+
+```bash
+cd mini-claw-code-starter-py
+PYTHONPATH=src python -m pytest tests/test_ch1.py
+```
+
+Rust:
 
 ```bash
 cargo test -p mini-claw-code-starter ch1    # test one chapter

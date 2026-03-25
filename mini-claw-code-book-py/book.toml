@@ -1,0 +1,8 @@
+[book]
+title = "mini-claw-code in Python"
+authors = ["OpenAI Codex"]
+src = "src"
+language = "en"
+
+[output.html]
+default-theme = "light"
