@@ -258,6 +258,228 @@ The `SKILL.md` file contains the workflow, while
 
 That keeps the core skill short.
 
+## Writing good skills
+
+The runtime support is only half of the story. A weak skill is usually worse
+than no skill at all: it loads extra context but does not actually teach the
+agent anything useful.
+
+The official Agent Skills guidance suggests a few habits that are especially
+worth following in a tutorial project.
+
+### Start from real expertise
+
+Do not ask the model to invent a skill from generic background knowledge alone.
+
+The best skills come from:
+
+- a real task you already completed with an agent
+- corrections you had to make during that task
+- runbooks, style guides, incident notes, schemas, or project-specific docs
+- recurring failure cases and the fixes that resolved them
+
+In practice, that means a `python-packaging` skill should be based on your
+team's actual release steps, not on a vague idea of "Python best practices."
+
+### Add what the agent lacks
+
+Once a skill activates, its full `SKILL.md` body competes for attention with:
+
+- the system prompt
+- the conversation history
+- any other active skill
+
+So keep the skill focused on what the model would otherwise get wrong:
+
+- project conventions
+- specific tools to prefer
+- known edge cases
+- required output formats
+
+Do not waste space explaining general concepts the model already knows.
+
+Bad:
+
+```markdown
+PDF files are a common document format. To extract text from them, use a Python library.
+```
+
+Better:
+
+```markdown
+Use pdfplumber for text extraction. For scanned documents, fall back to OCR.
+```
+
+Ask yourself:
+
+> Would the agent get this wrong without this instruction?
+
+If the answer is no, cut it.
+
+### Design coherent units
+
+A skill should cover one coherent unit of work.
+
+Good scope:
+
+- "package and release this Python project"
+- "review a pull request for security issues"
+
+Bad scope:
+
+- "all Python development"
+- "databases, queries, and production administration"
+
+If a skill is too small, the agent has to load many skills at once. If it is too
+large, it becomes hard to trigger precisely.
+
+### Aim for moderate detail
+
+Short, stepwise guidance usually works better than exhaustive documentation.
+
+If you try to document every edge case inline, the agent may spend time on
+instructions that do not apply to the current task. Keep `SKILL.md` focused on
+the core workflow, and move deeper detail into `references/`.
+
+### Use progressive disclosure on purpose
+
+The official guidance recommends keeping `SKILL.md` compact and moving large or
+conditional detail into separate files.
+
+The important part is not just moving content out. It is telling the agent
+**when** to read it.
+
+Good:
+
+```markdown
+If `uv build` fails because of missing metadata, read `references/build-errors.md`.
+```
+
+Weak:
+
+```markdown
+See `references/` for more details.
+```
+
+The first version gives the model a trigger. The second just adds ambiguity.
+
+### Provide defaults, not menus
+
+When multiple tools could work, choose one default and mention alternatives only
+as an escape hatch.
+
+Bad:
+
+```markdown
+You can use setuptools, hatchling, poetry-core, flit, or something else.
+```
+
+Better:
+
+```markdown
+Read `pyproject.toml` first. If the project already uses `uv`, prefer `uv build`.
+Only switch tools if the repository clearly uses a different packaging backend.
+```
+
+This reduces dithering and makes execution traces more efficient.
+
+### Favor procedures over declarations
+
+A skill should teach a reusable method, not hard-code one exact answer.
+
+Bad:
+
+```markdown
+Set the version to 1.4.2 and publish to PyPI.
+```
+
+Better:
+
+```markdown
+1. Read `pyproject.toml` to find the current version.
+2. Confirm the target version with the user if it is not explicit.
+3. Build the package.
+4. Validate the generated artifacts before publishing.
+```
+
+The second version still guides the agent strongly, but it generalizes across
+many releases.
+
+### Add gotchas
+
+Some of the highest-value content in a skill is a short list of corrections to
+wrong assumptions the agent is likely to make.
+
+Example gotchas:
+
+- "This repository uses `src/` layout."
+- "The published package name differs from the import name."
+- "The release checklist must be updated before building artifacts."
+
+Keep important gotchas in `SKILL.md` itself. If a fact is too surprising or too
+easy to miss, you should not hide it in a reference file.
+
+### Use templates, checklists, and validation loops
+
+Three patterns are especially useful in practical skills:
+
+- templates: when the output must match a known structure
+- checklists: when the workflow has several dependent steps
+- validation loops: when the agent should verify its own work before proceeding
+
+For example, a release-oriented skill might say:
+
+```markdown
+## Release workflow
+1. Read `pyproject.toml`
+2. Update version and release notes
+3. Run `uv build`
+4. Inspect the output artifacts
+5. Only publish after the user confirms the registry
+```
+
+And if you have a reusable validator, make the loop explicit:
+
+```markdown
+1. Make the changes
+2. Run `uv build`
+3. If the build fails, fix the issue and run it again
+4. Only continue once the build succeeds
+```
+
+For risky or multi-step operations, a plan-validate-execute pattern is even
+better:
+
+1. build an intermediate plan or config
+2. validate it against a source of truth
+3. execute only after validation passes
+
+### Refine with real execution
+
+The first version of a skill is usually not the final version.
+
+Run it on real tasks and inspect the execution trace, not just the final output.
+If the agent:
+
+- wanders through too many options
+- ignores an important project convention
+- loads references it did not need
+- misfires on unrelated prompts
+
+then the skill still needs editing.
+
+A good refinement loop is:
+
+1. run the skill on real prompts
+2. inspect what it actually did
+3. cut vague or distracting instructions
+4. add the missing correction or gotcha
+5. run it again
+
+This is one reason skills pair well with the rest of this tutorial project: you
+can test them in normal CLI and TUI runs instead of treating them as a separate
+system.
+
 ## Wiring the CLI
 
 The simple chat example is the first place we use skills.
