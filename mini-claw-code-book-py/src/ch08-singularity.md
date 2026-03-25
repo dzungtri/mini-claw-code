@@ -6,6 +6,17 @@ and continue a multi-turn conversation.
 The remaining chapters are read-only extension walkthroughs built on the
 reference implementation in `mini-claw-code-py`.
 
+## Mental model
+
+```mermaid
+flowchart LR
+    Core["Chapters 1-7"] --> Streaming["Streaming"]
+    Core --> Ask["AskTool"]
+    Core --> Plan["Plan mode"]
+    Core --> Subagents["Subagents"]
+    Core --> TUI["Better TUI"]
+```
+
 Extensions covered next:
 
 - a better terminal UI

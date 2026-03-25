@@ -5,6 +5,17 @@ The basic CLI works, but it prints raw text and every tool call directly.
 The Python port includes `mini-claw-code-py/examples/tui.py`, which shows a
 simple terminal UI around `PlanAgent`.
 
+## Mental model
+
+```mermaid
+flowchart LR
+    Agent["PlanAgent"] --> Events["Agent events"]
+    Events --> UI["Terminal UI"]
+    Ask["UserInputRequest queue"] --> UI
+    UI --> User["User"]
+    User --> UI
+```
+
 ## What it demonstrates
 
 - streaming text to the terminal as it arrives

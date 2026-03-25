@@ -2,6 +2,15 @@
 
 The Python port has not implemented MCP yet.
 
+## Mental model
+
+```mermaid
+flowchart LR
+    Agent --> MCPServer["MCP server"]
+    MCPServer --> RemoteTools["remote tools/resources"]
+    RemoteTools --> Agent
+```
+
 The next logical step is to expose the Python tools through an MCP server or
 connect the agent to external MCP services.
 

@@ -4,5 +4,9 @@ authors = ["OpenAI Codex"]
 src = "src"
 language = "en"
 
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
 [output.html]
 default-theme = "light"
+additional-js = ["mermaid.min.js", "mermaid-init.js"]

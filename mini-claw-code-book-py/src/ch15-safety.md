@@ -2,6 +2,16 @@
 
 The Python port has not implemented safety rails yet.
 
+## Mental model
+
+```mermaid
+flowchart TD
+    Prompt["User prompt"] --> Policy["policy checks"]
+    Policy --> ToolGate["tool approval gate"]
+    ToolGate --> Shell["shell/file tools"]
+    ToolGate --> Reject["block or ask approval"]
+```
+
 A future chapter should cover:
 
 - destructive-command approval prompts
