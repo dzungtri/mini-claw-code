@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from .agent import AgentDone, AgentError, AgentEvent, AgentTextDelta, AgentToolCall, tool_summary
-from .prompts import DEFAULT_PLAN_PROMPT_TEMPLATE
+from .prompts import DEFAULT_PLAN_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, render_system_prompt
+from .skills import SkillRegistry
 from .streaming import StreamDone, StreamProvider, TextDelta
 from .types import Message, StopReason, ToolDefinition, ToolSet
 
@@ -14,6 +16,7 @@ class PlanAgent:
         self.tools = ToolSet()
         self._read_only = {"bash", "read", "ask_user"}
         self.plan_system_prompt = DEFAULT_PLAN_PROMPT_TEMPLATE
+        self.execution_system_prompt = DEFAULT_SYSTEM_PROMPT_TEMPLATE
         self.exit_plan_def = ToolDefinition.new(
             "exit_plan",
             "Signal that your plan is complete and ready for user review.",
@@ -31,13 +34,34 @@ class PlanAgent:
         self.plan_system_prompt = prompt
         return self
 
+    def system_prompt(self, prompt: str) -> "PlanAgent":
+        self.execution_system_prompt = prompt
+        return self
+
+    def enable_default_skills(self, cwd: Path | None = None) -> "PlanAgent":
+        section = SkillRegistry.discover_default(cwd=Path.cwd() if cwd is None else cwd).prompt_section()
+        if not section:
+            return self
+
+        target_cwd = Path.cwd() if cwd is None else cwd
+        self.execution_system_prompt = render_system_prompt(
+            self.execution_system_prompt,
+            cwd=target_cwd,
+            extra_sections=[section],
+        )
+        self.plan_system_prompt = render_system_prompt(
+            self.plan_system_prompt,
+            cwd=target_cwd,
+            extra_sections=[section],
+        )
+        return self
+
     async def plan(
         self,
         messages: list[Message],
         events: "asyncio.Queue[AgentEvent]",
     ) -> str:
-        if not messages or messages[0].kind != "system":
-            messages.insert(0, Message.system(self.plan_system_prompt))
+        self._set_system_prompt(messages, self.plan_system_prompt)
         return await self._run_loop(messages, self._read_only, events)
 
     async def execute(
@@ -45,6 +69,7 @@ class PlanAgent:
         messages: list[Message],
         events: "asyncio.Queue[AgentEvent]",
     ) -> str:
+        self._set_system_prompt(messages, self.execution_system_prompt)
         return await self._run_loop(messages, None, events)
 
     async def _run_loop(
@@ -123,3 +148,11 @@ class PlanAgent:
             if exit_plan:
                 await events.put(AgentDone(plan_text))
                 return plan_text
+
+    @staticmethod
+    def _set_system_prompt(messages: list[Message], prompt: str) -> None:
+        system = Message.system(prompt)
+        if messages and messages[0].kind == "system":
+            messages[0] = system
+        else:
+            messages.insert(0, system)

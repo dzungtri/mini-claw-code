@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from mini_claw_code_py import (
     AgentDone,
@@ -10,13 +11,18 @@ from mini_claw_code_py import (
     AskTool,
     BashTool,
     ChannelInputHandler,
+    DEFAULT_PLAN_PROMPT_TEMPLATE,
+    DEFAULT_SYSTEM_PROMPT_TEMPLATE,
     EditTool,
     Message,
     OpenRouterProvider,
     PlanAgent,
     ReadTool,
+    SYSTEM_PROMPT_FILE_ENV,
     UserInputRequest,
     WriteTool,
+    load_prompt_template,
+    render_system_prompt,
 )
 
 
@@ -70,8 +76,23 @@ async def main() -> None:
     provider = OpenRouterProvider.from_env()
     input_queue: asyncio.Queue[UserInputRequest] = asyncio.Queue()
     event_queue: asyncio.Queue[object] = asyncio.Queue()
+    cwd = Path.cwd()
+    system_prompt = render_system_prompt(
+        load_prompt_template(
+            SYSTEM_PROMPT_FILE_ENV,
+            DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+        ),
+        cwd=cwd,
+    )
+    plan_prompt = render_system_prompt(
+        DEFAULT_PLAN_PROMPT_TEMPLATE,
+        cwd=cwd,
+    )
     agent = (
         PlanAgent(provider)
+        .system_prompt(system_prompt)
+        .plan_prompt(plan_prompt)
+        .enable_default_skills(cwd)
         .tool(BashTool())
         .tool(ReadTool())
         .tool(WriteTool())

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Sequence
 
 SYSTEM_PROMPT_FILE_ENV = "MINI_CLAW_SYSTEM_PROMPT_FILE"
 PLAN_PROMPT_FILE_ENV = "MINI_CLAW_PLAN_PROMPT_FILE"
@@ -84,3 +85,14 @@ def load_prompt_template(env_var: str, default_template: str) -> str:
     if not path:
         return default_template
     return Path(path).read_text()
+
+
+def render_system_prompt(
+    template: str,
+    *,
+    cwd: str | Path,
+    extra_sections: Sequence[str] = (),
+) -> str:
+    parts = [template.replace("{{cwd}}", str(cwd)).strip()]
+    parts.extend(section.strip() for section in extra_sections if section.strip())
+    return "\n\n".join(parts)

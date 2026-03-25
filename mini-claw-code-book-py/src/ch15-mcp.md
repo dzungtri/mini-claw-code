@@ -1,4 +1,4 @@
-# Chapter 14: MCP: Model Context Protocol (coming soon)
+# Chapter 15: MCP: Model Context Protocol (coming soon)
 
 The Python port has not implemented MCP yet.
 

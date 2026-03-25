@@ -7,7 +7,9 @@ from .prompts import (
     PLAN_PROMPT_FILE_ENV,
     SYSTEM_PROMPT_FILE_ENV,
     load_prompt_template,
+    render_system_prompt,
 )
+from .skills import Skill, SkillRegistry, default_skill_roots, parse_skill_file
 from .providers import OpenRouterProvider
 from .streaming import (
     MockStreamProvider,
@@ -60,6 +62,8 @@ __all__ = [
     "PlanAgent",
     "Provider",
     "ReadTool",
+    "Skill",
+    "SkillRegistry",
     "SYSTEM_PROMPT_FILE_ENV",
     "SimpleAgent",
     "StopReason",
@@ -76,7 +80,10 @@ __all__ = [
     "ToolSet",
     "UserInputRequest",
     "WriteTool",
+    "default_skill_roots",
     "load_prompt_template",
     "parse_sse_line",
+    "parse_skill_file",
+    "render_system_prompt",
     "single_turn",
 ]

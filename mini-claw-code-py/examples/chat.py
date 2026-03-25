@@ -12,10 +12,12 @@ from mini_claw_code_py import (
     Message,
     OpenRouterProvider,
     ReadTool,
+    SkillRegistry,
     SYSTEM_PROMPT_FILE_ENV,
     SimpleAgent,
     WriteTool,
     load_prompt_template,
+    render_system_prompt,
 )
 
 
@@ -31,10 +33,16 @@ async def main() -> None:
     )
 
     cwd = str(Path.cwd())
-    system_prompt = load_prompt_template(
+    prompt_template = load_prompt_template(
         SYSTEM_PROMPT_FILE_ENV,
         DEFAULT_SYSTEM_PROMPT_TEMPLATE,
-    ).replace("{{cwd}}", cwd)
+    )
+    skills_section = SkillRegistry.discover_default(Path.cwd()).prompt_section()
+    system_prompt = render_system_prompt(
+        prompt_template,
+        cwd=cwd,
+        extra_sections=[skills_section],
+    )
     history = [Message.system(system_prompt)]
 
     while True:
