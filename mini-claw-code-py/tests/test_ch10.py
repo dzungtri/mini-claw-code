@@ -1,10 +1,13 @@
 from collections import deque
+from pathlib import Path
 
 import pytest
 
 from mini_claw_code_py import (
     AgentDone,
     AgentTextDelta,
+    DEFAULT_PLAN_PROMPT_TEMPLATE,
+    DEFAULT_SYSTEM_PROMPT_TEMPLATE,
     MockStreamProvider,
     StopReason,
     StreamAccumulator,
@@ -64,3 +67,9 @@ async def test_ch10_streaming_agent() -> None:
     while not isinstance((event := await queue.get()), AgentDone):
         pass
     assert result == "Hello!"
+
+
+def test_ch10_default_prompts_match_files() -> None:
+    root = Path(__file__).resolve().parents[1]
+    assert DEFAULT_SYSTEM_PROMPT_TEMPLATE == (root / "prompts" / "prompt.md").read_text()
+    assert DEFAULT_PLAN_PROMPT_TEMPLATE == (root / "prompts" / "planning_prompt.md").read_text()

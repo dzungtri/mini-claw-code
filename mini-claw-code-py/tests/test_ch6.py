@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -85,3 +86,15 @@ async def test_ch6_stream_chat_mock_transport() -> None:
     assert turn.text == "Hello"
     assert turn.stop_reason is StopReason.STOP
     await provider.aclose()
+
+
+def test_ch6_from_env_loads_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
+    (tmp_path / ".env").write_text("OPENROUTER_API_KEY=test-key\nOPENROUTER_MODEL=test-model\n")
+
+    provider = OpenRouterProvider.from_env()
+
+    assert provider.api_key == "test-key"
+    assert provider.model == "test-model"

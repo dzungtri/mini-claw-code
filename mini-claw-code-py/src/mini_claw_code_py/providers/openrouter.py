@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from pathlib import Path
 from typing import Any, Sequence
 
 import httpx
@@ -41,7 +42,31 @@ class OpenRouterProvider(Provider):
         return value or None
 
     @classmethod
+    def _load_dotenv(cls) -> None:
+        for directory in [Path.cwd(), *Path.cwd().parents]:
+            dotenv_path = directory / ".env"
+            if dotenv_path.is_file():
+                for line in dotenv_path.read_text().splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if line.startswith("export "):
+                        line = line[len("export ") :].strip()
+                    if "=" not in line:
+                        continue
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip()
+                    if not key or key in os.environ:
+                        continue
+                    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                        value = value[1:-1]
+                    os.environ[key] = value
+                return
+
+    @classmethod
     def from_env_with_model(cls, model: str) -> "OpenRouterProvider":
+        cls._load_dotenv()
         openrouter_key = cls._read_non_empty_env("OPENROUTER_API_KEY")
         if openrouter_key is not None:
             return cls(openrouter_key, model)
@@ -56,6 +81,7 @@ class OpenRouterProvider(Provider):
 
     @classmethod
     def from_env(cls) -> "OpenRouterProvider":
+        cls._load_dotenv()
         openrouter_key = cls._read_non_empty_env("OPENROUTER_API_KEY")
         if openrouter_key is not None:
             model = cls._read_non_empty_env("OPENROUTER_MODEL") or cls.DEFAULT_OPENROUTER_MODEL
