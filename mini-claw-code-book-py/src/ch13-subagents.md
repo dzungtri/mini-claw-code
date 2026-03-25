@@ -46,6 +46,10 @@ SubagentTool(provider, lambda: ToolSet().with_tool(ReadTool()))
 The parent does not need a special execution path. It just calls a tool and
 receives a string result.
 
+That simplicity is important. The Python version does **not** need background
+workers, queues, or a second orchestration framework for this chapter. The
+child runs inline inside the tool call.
+
 ## Parent/child flow
 
 ```mermaid
@@ -81,13 +85,24 @@ lambda: ToolSet().with_tool(ReadTool()).with_tool(WriteTool())
 That avoids problems with shared mutable tool state and makes each child spawn
 independent.
 
+It also gives you one important safety control: the child only gets the tools
+you put in that factory.
+
+In real products, subagents often have a narrower tool set than the parent. For
+example, Deer Flow explicitly prevents subagents from recursively spawning more
+subagents. In this tutorial project, the simplest equivalent is:
+
+- only include the tools the child actually needs
+- do **not** put `SubagentTool` back into the child's `ToolSet` unless you
+  really want nested delegation
+
 ## `SubagentTool`
 
 The Python implementation stores:
 
 - the shared provider
 - a `tools_factory` callback
-- an optional child system prompt
+- a child system prompt
 - a `max_turns` limit
 - a normal `ToolDefinition`
 
@@ -97,13 +112,61 @@ The tool schema exposes a single required argument:
 
 That task string is the entire child brief.
 
+## A good child brief
+
+The biggest practical lesson from production systems is that subagents only
+work well when the parent gives them a clear task.
+
+Bad delegated task:
+
+```text
+Look into this.
+```
+
+Better delegated task:
+
+```text
+Review auth.py for error-handling gaps. Read the file, identify missing checks,
+and return a concise summary with the exact functions that need changes.
+```
+
+A good subagent task usually includes:
+
+1. the goal
+2. the scope
+3. any important constraints
+4. the expected output
+
+That is why the Python tool schema describes `task` as a full delegated brief,
+not just a label.
+
+## Default child behavior
+
+The Python reference now gives subagents a default system prompt. It tells the
+child agent to:
+
+- stay scoped to the delegated task
+- use the available tools autonomously
+- avoid asking the user for clarification
+- return a concise result for the parent
+
+That matches real product behavior more closely. In a production tool like Deer
+Flow, subagents are expected to work from the delegated brief and return a
+clean summary instead of restarting the whole parent conversation.
+
+You can still override that prompt with:
+
+```python
+SubagentTool(provider, tools_factory).system_prompt("You are a security auditor.")
+```
+
 ## The child loop
 
 Inside `call()`, the subagent:
 
 1. creates a fresh toolset
 2. builds a fresh message history
-3. optionally inserts a child-specific system prompt
+3. inserts the child system prompt
 4. appends the task as a user message
 5. runs the same provider/tool loop as `SimpleAgent`
 
@@ -112,6 +175,13 @@ The main differences from the parent loop are:
 - no terminal printing
 - local child-only history
 - a hard maximum number of turns
+- tool failures become child-visible error strings
+- provider failures still propagate as real exceptions
+
+That last distinction matters:
+
+- if the child calls an unknown tool, the child can still recover and answer
+- if the provider itself fails, the parent should know the infrastructure broke
 
 ## Why a turn limit?
 
@@ -122,6 +192,33 @@ exceeded.
 That makes the failure visible to the parent model without crashing the whole
 agent.
 
+The builder also rejects invalid values like `max_turns(0)` early.
+
+## When to use subagents
+
+Borrowing the production mindset from Deer Flow, subagents are most useful
+when the task is:
+
+- multi-step
+- self-contained
+- likely to create lots of local context
+- independent enough that the parent only needs the summary
+
+Good uses:
+
+- "Review `auth.py` for security issues and summarize the findings."
+- "Read both migration files and explain the schema change."
+- "Write the fixture file, then report where you saved it."
+
+Bad uses:
+
+- "Read one file."
+- "Ask the user which option they want."
+- "Do this tiny edit."
+
+If the parent can do the work directly in one or two steps, a subagent usually
+just adds overhead.
+
 ## What the parent sees
 
 The parent never sees the child's internal conversation. It only sees the final
@@ -131,6 +228,35 @@ That is the whole point:
 
 - the child handles the messy details
 - the parent keeps a smaller, cleaner context
+
+The reference tests now verify this explicitly by checking that the parent's
+history contains only:
+
+1. the parent user message
+2. the parent assistant message with the `subagent` tool call
+3. the tool result from the child
+4. the parent's final assistant answer
+
+The child's internal turns never leak into that history.
+
+## One real example prompt
+
+If you want to see subagents in action manually, this is a good prompt to try
+once the parent agent is wired with `SubagentTool` plus `ReadTool` and
+`WriteTool`:
+
+```text
+Use a subagent to inspect pyproject.toml, summarize the package metadata, and
+tell me which version is currently configured.
+```
+
+Why this works well:
+
+- the child has a clear scope
+- the task is self-contained
+- the parent only needs the summary
+- the child can use `read` without polluting the parent's history with file
+  contents
 
 ## Running the tests
 
@@ -146,9 +272,28 @@ These cover:
 - child responses with no tool calls
 - child tool usage
 - multi-turn child behavior
+- max-turn failures
+- missing task errors
+- provider error propagation
+- unknown child tools
+- custom system prompts
+- parent continuation after child completion
+- child-history isolation from the parent
 
 ## Recap
 
 Subagents let the parent agent delegate focused work without polluting its own
-context window. In the Python version, the implementation is especially clean
-because a subagent is literally just a tool with its own internal loop.
+context window.
+
+The Python version stays tutorial-friendly:
+
+- one inline child loop
+- one delegated task string
+- one fresh child toolset
+- one final summary returned to the parent
+
+But it also now reflects the better real-world pattern:
+
+- children get a scoped default prompt
+- parent and child histories stay isolated
+- subagents are for focused multi-step work, not trivial tool wrappers

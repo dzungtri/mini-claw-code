@@ -18,10 +18,13 @@ from mini_claw_code_py import (
     OpenRouterProvider,
     PlanAgent,
     ReadTool,
+    SubagentTool,
     SYSTEM_PROMPT_FILE_ENV,
+    ToolSet,
     UserInputRequest,
     WriteTool,
     load_prompt_template,
+    render_subagent_prompt_section,
     render_system_prompt,
 )
 
@@ -77,16 +80,28 @@ async def main() -> None:
     input_queue: asyncio.Queue[UserInputRequest] = asyncio.Queue()
     event_queue: asyncio.Queue[object] = asyncio.Queue()
     cwd = Path.cwd()
+    subagent_section = render_subagent_prompt_section()
     system_prompt = render_system_prompt(
         load_prompt_template(
             SYSTEM_PROMPT_FILE_ENV,
             DEFAULT_SYSTEM_PROMPT_TEMPLATE,
         ),
         cwd=cwd,
+        extra_sections=[subagent_section],
     )
     plan_prompt = render_system_prompt(
         DEFAULT_PLAN_PROMPT_TEMPLATE,
         cwd=cwd,
+    )
+    subagent = SubagentTool(
+        provider,
+        lambda: (
+            ToolSet()
+            .with_tool(BashTool())
+            .with_tool(ReadTool())
+            .with_tool(WriteTool())
+            .with_tool(EditTool())
+        ),
     )
     agent = (
         PlanAgent(provider)
@@ -98,6 +113,7 @@ async def main() -> None:
         .tool(WriteTool())
         .tool(EditTool())
         .tool(AskTool(ChannelInputHandler(input_queue)))
+        .tool(subagent)
     )
 
     history: list[Message] = []

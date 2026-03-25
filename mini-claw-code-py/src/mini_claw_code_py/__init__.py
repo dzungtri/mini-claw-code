@@ -11,6 +11,12 @@ from .prompts import (
 )
 from .skills import Skill, SkillRegistry, default_skill_roots, parse_skill_file
 from .providers import OpenRouterProvider
+from .subagent import (
+    DEFAULT_SUBAGENT_SYSTEM_PROMPT,
+    SUBAGENT_PARENT_PROMPT_SECTION,
+    SubagentTool,
+    render_subagent_prompt_section,
+)
 from .streaming import (
     MockStreamProvider,
     StreamAccumulator,
@@ -22,7 +28,6 @@ from .streaming import (
     ToolCallStart,
     parse_sse_line,
 )
-from .subagent import SubagentTool
 from .tools import (
     AskTool,
     BashTool,
@@ -50,6 +55,7 @@ __all__ = [
     "ChannelInputHandler",
     "CliInputHandler",
     "DEFAULT_PLAN_PROMPT_TEMPLATE",
+    "DEFAULT_SUBAGENT_SYSTEM_PROMPT",
     "DEFAULT_SYSTEM_PROMPT_TEMPLATE",
     "EditTool",
     "InputHandler",
@@ -67,6 +73,7 @@ __all__ = [
     "SYSTEM_PROMPT_FILE_ENV",
     "SimpleAgent",
     "StopReason",
+    "SUBAGENT_PARENT_PROMPT_SECTION",
     "StreamAccumulator",
     "StreamDone",
     "StreamProvider",
@@ -84,6 +91,7 @@ __all__ = [
     "load_prompt_template",
     "parse_sse_line",
     "parse_skill_file",
+    "render_subagent_prompt_section",
     "render_system_prompt",
     "single_turn",
 ]

@@ -13,16 +13,29 @@ from mini_claw_code_py import (
     OpenRouterProvider,
     ReadTool,
     SkillRegistry,
+    SubagentTool,
     SYSTEM_PROMPT_FILE_ENV,
     SimpleAgent,
+    ToolSet,
     WriteTool,
     load_prompt_template,
+    render_subagent_prompt_section,
     render_system_prompt,
 )
 
 
 async def main() -> None:
     provider = OpenRouterProvider.from_env()
+    subagent = SubagentTool(
+        provider,
+        lambda: (
+            ToolSet()
+            .with_tool(BashTool())
+            .with_tool(ReadTool())
+            .with_tool(WriteTool())
+            .with_tool(EditTool())
+        ),
+    )
     agent = (
         SimpleAgent(provider)
         .tool(BashTool())
@@ -30,6 +43,7 @@ async def main() -> None:
         .tool(WriteTool())
         .tool(EditTool())
         .tool(AskTool(CliInputHandler()))
+        .tool(subagent)
     )
 
     cwd = str(Path.cwd())
@@ -38,10 +52,11 @@ async def main() -> None:
         DEFAULT_SYSTEM_PROMPT_TEMPLATE,
     )
     skills_section = SkillRegistry.discover_default(Path.cwd()).prompt_section()
+    subagent_section = render_subagent_prompt_section()
     system_prompt = render_system_prompt(
         prompt_template,
         cwd=cwd,
-        extra_sections=[skills_section],
+        extra_sections=[skills_section, subagent_section],
     )
     history = [Message.system(system_prompt)]
 
