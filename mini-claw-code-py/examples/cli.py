@@ -148,6 +148,12 @@ async def ui_event_loop(
             return
 
 
+def drain_notice_queue(queue: "asyncio.Queue[AgentNotice]") -> None:
+    while not queue.empty():
+        notice = queue.get_nowait()
+        print(f"  {DIM}{notice.message}{RESET}")
+
+
 async def main() -> None:
     provider = OpenRouterProvider.from_env()
     input_queue: asyncio.Queue[UserInputRequest] = asyncio.Queue()
@@ -172,6 +178,8 @@ async def main() -> None:
         .plan_prompt(plan_prompt)
         .enable_core_tools(ChannelInputHandler(input_queue))
         .enable_default_memory(cwd=cwd)
+        .enable_user_memory_file(Path.home() / ".agents" / "AGENTS.md")
+        .enable_memory_updates(debounce_seconds=2.0, target_scope="user")
         .enable_context_durability()
         .enable_default_mcp(cwd=cwd)
         .enable_default_skills(cwd)
@@ -182,9 +190,12 @@ async def main() -> None:
     print()
 
     while True:
+        drain_notice_queue(agent.notice_queue())
         try:
             prompt = input(prompt_prefix(plan_mode)).strip()
         except EOFError:
+            await agent.flush_memory_updates()
+            drain_notice_queue(agent.notice_queue())
             print()
             return
 

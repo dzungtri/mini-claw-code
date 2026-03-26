@@ -11,13 +11,19 @@ from .context import (
     compact_message_history,
     render_context_durability_prompt_section,
 )
-from .memory import MemoryRegistry
+from .memory import (
+    MemoryRegistry,
+    MemoryUpdateQueue,
+    MemoryUpdater,
+    latest_memory_exchange,
+    should_consider_memory_update,
+)
 from .mcp import MCPRegistry, MCPToolAdapter
 from .prompts import DEFAULT_PLAN_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, render_system_prompt
 from .skills import SkillRegistry
 from .streaming import StreamDone, StreamProvider, TextDelta
 from .tools import AskTool, BashTool, EditTool, InputHandler, ReadTool, WriteTool
-from .types import Message, StopReason, ToolDefinition, ToolSet
+from .types import Message, Provider, StopReason, ToolDefinition, ToolSet
 
 
 HARNESS_CORE_PROMPT_SECTION = """<harness_core_tools>
@@ -44,6 +50,9 @@ class HarnessAgent:
         self.tools = ToolSet()
         self._read_only = {"bash", "read", "ask_user"}
         self._memory_registry = MemoryRegistry()
+        self._memory_update_queue: MemoryUpdateQueue | None = None
+        self._memory_update_scope = "user"
+        self._background_notice_queue: "asyncio.Queue[AgentNotice]" = asyncio.Queue()
         self._mcp_registry: MCPRegistry | None = None
         self._core_tools_enabled = False
         self._ask_tool_enabled = False
@@ -177,6 +186,36 @@ class HarnessAgent:
         )
         return self
 
+    def enable_memory_updates(
+        self,
+        provider: Provider | None = None,
+        *,
+        debounce_seconds: float = 2.0,
+        target_scope: str = "user",
+        max_messages: int = 6,
+    ) -> "HarnessAgent":
+        chat_provider = provider or self._default_memory_update_provider()
+        if chat_provider is None:
+            raise ValueError(
+                "Memory updates require a Provider with a chat() method. "
+                "Pass provider=... explicitly when the main stream provider does not support chat()."
+            )
+        self._memory_update_queue = MemoryUpdateQueue(
+            MemoryUpdater(chat_provider, max_messages=max_messages),
+            debounce_seconds=debounce_seconds,
+            on_notice=self._emit_background_notice,
+        )
+        self._memory_update_scope = target_scope
+        return self
+
+    def notice_queue(self) -> "asyncio.Queue[AgentNotice]":
+        return self._background_notice_queue
+
+    async def flush_memory_updates(self) -> None:
+        if self._memory_update_queue is None:
+            return
+        await self._memory_update_queue.flush()
+
     def enable_context_durability(
         self,
         *,
@@ -275,9 +314,14 @@ class HarnessAgent:
                 await forwarder
 
                 if turn.stop_reason is StopReason.STOP:
-                    text = turn.text or ""
-                    await events.put(AgentDone(text))
+                    text = (turn.text or "").strip()
+                    if not text:
+                        text = "I don't have a textual reply for that turn. Please try again."
                     messages.append(Message.assistant(turn))
+                    notice = await self._queue_memory_update(messages)
+                    if notice:
+                        await events.put(AgentNotice(notice))
+                    await events.put(AgentDone(text))
                     return text
 
                 results: list[tuple[str, str]] = []
@@ -315,6 +359,9 @@ class HarnessAgent:
 
                 if exit_plan:
                     text = turn.text or ""
+                    notice = await self._queue_memory_update(messages)
+                    if notice:
+                        await events.put(AgentNotice(notice))
                     await events.put(AgentDone(text))
                     return text
 
@@ -339,6 +386,28 @@ class HarnessAgent:
         if not memory_section:
             return prompt
         return _append_prompt_section(prompt, memory_section)
+
+    def _default_memory_update_provider(self) -> Provider | None:
+        provider = self.provider
+        chat = getattr(provider, "chat", None)
+        if callable(chat):
+            return provider  # type: ignore[return-value]
+        return None
+
+    async def _queue_memory_update(self, messages: list[Message]) -> str | None:
+        if self._memory_update_queue is None:
+            return None
+        source = self._memory_registry.get(self._memory_update_scope)
+        if source is None:
+            return None
+        snapshot = latest_memory_exchange(messages)
+        if not should_consider_memory_update(snapshot):
+            return None
+        await self._memory_update_queue.add(source, snapshot)
+        return f"Memory update queued for {source.scope} memory."
+
+    async def _emit_background_notice(self, message: str) -> None:
+        await self._background_notice_queue.put(AgentNotice(message))
 
 
 def render_harness_prompt_section() -> str:

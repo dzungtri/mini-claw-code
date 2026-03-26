@@ -406,6 +406,15 @@ questions:
 
 Those are real questions, but they should not block the first memory design.
 
+That is why this chapter should be read in **two stages**:
+
+1. load durable memory correctly
+2. then add a careful memory updater
+
+The updater should not be the first memory feature.
+
+But once the loading layer is stable, adding a small updater becomes realistic.
+
 ## A good next module boundary
 
 The cleanest next module would be:
@@ -444,6 +453,14 @@ That shape also gives the harness a natural place to add later features:
 - memory update policies
 - memory safety checks
 
+The current Python implementation now includes the first updater slice in the
+same module:
+
+- message filtering
+- memory-signal gating
+- managed-block merging
+- a debounced async update queue
+
 ## Mental model
 
 ```mermaid
@@ -458,8 +475,11 @@ This is deliberately simple.
 
 The runtime is not trying to infer memory from every conversation yet.
 
-It is only loading explicit durable memory files and presenting them clearly to
-the model.
+It starts by loading explicit durable memory files and presenting them clearly
+to the model.
+
+Then, when memory updates are enabled, the same module can queue a filtered
+conversation snapshot for later memory extraction.
 
 ## Runtime-loaded memory
 
@@ -474,6 +494,156 @@ That gives the harness two useful properties:
 
 This is a better fit for a local coding agent than a one-time prompt assembly
 step.
+
+## Manual memory and learned memory
+
+A practical harness should not rewrite the entire `AGENTS.md` file every time
+it learns something new.
+
+That would be too destructive.
+
+The better design is:
+
+- keep manual memory as normal Markdown the user can edit freely
+- let the updater manage only one small generated block
+
+For example:
+
+```text
+# Project memory
+- Use `uv run pytest` for tests.
+
+<!-- mini-claw:memory-updater:start -->
+- Prefer concise final answers.
+- Read the target file before editing when context is missing.
+<!-- mini-claw:memory-updater:end -->
+```
+
+This is a good tutorial design because:
+
+- hand-written memory stays readable
+- generated memory stays easy to replace
+- tests can verify exactly what the updater owns
+
+## Filter before updating memory
+
+DeerFlow gets an important thing right: memory updates should not see every
+intermediate tool step.
+
+For this project, the correct first filter is:
+
+- keep user messages
+- keep final assistant responses without tool calls
+- drop system prompts
+- drop tool results
+- drop intermediate assistant tool-call steps
+
+That gives the updater the part of the conversation that is most likely to
+contain stable guidance.
+
+## Gate memory updates before calling the LLM
+
+A full LLM memory update after every turn is expensive.
+
+So the first harness updater should use a cheap gate before doing any model
+call.
+
+For example, only consider an update when recent user messages look like they
+contain durable signal:
+
+- "remember this"
+- "prefer concise answers"
+- "always use `uv run pytest`"
+- "for this repo, keep patches small"
+
+That means the updater can skip obvious non-memory turns such as:
+
+- "what files changed today?"
+- "show me the failing test output"
+- "open auth.py"
+
+This is a very good tradeoff for a local coding agent.
+
+## Debounced memory updates
+
+DeerFlow also gets another important thing right: memory updates should be
+queued and debounced.
+
+The runtime may receive several quick turns in a row:
+
+- the user corrects the agent
+- the agent answers
+- the user refines the preference
+
+If the harness writes memory on every one of those turns, it wastes model calls
+and churns the memory file.
+
+The smaller design for this project is:
+
+- queue the latest filtered conversation snapshot
+- keep only the newest pending update per memory target
+- wait a short debounce interval
+- then run one LLM-based extraction
+
+That is enough to teach the right idea without building a full background
+service.
+
+## Mental model for the updater
+
+```mermaid
+flowchart LR
+    Turns["conversation turns"] --> Filter["filter meaningful turns"]
+    Filter --> Gate["cheap memory-signal gate"]
+    Gate --> Queue["debounced update queue"]
+    Queue --> LLM["LLM memory extractor"]
+    LLM --> Merge["managed block merge"]
+    Merge --> File["AGENTS.md"]
+```
+
+This is the right level for `mini-claw-code-py`.
+
+It borrows the useful pattern from DeerFlow without copying the heavier runtime
+shape.
+
+## How the updater should write memory
+
+The updater should not free-form rewrite the whole file.
+
+It should:
+
+1. read the current target `AGENTS.md`
+2. ask the LLM for up to a few durable memory lines
+3. merge those lines into the managed block
+4. deduplicate normalized lines
+5. preserve the rest of the file exactly
+
+This design is safer than whole-file regeneration.
+
+It also keeps the update policy understandable for readers of the book.
+
+## Recommended API
+
+The current runtime shape should be:
+
+```python
+agent = (
+    HarnessAgent(provider)
+    .enable_default_memory(cwd=Path.cwd())
+    .enable_user_memory_file(Path.home() / ".agents" / "AGENTS.md")
+    .enable_memory_updates(
+        debounce_seconds=2.0,
+        target_scope="user",
+    )
+)
+```
+
+And when the runtime is shutting down, it should flush pending updates:
+
+```python
+await agent.flush_memory_updates()
+```
+
+That gives the harness a small but real long-term learning loop.
 
 ## How memory should interact with skills
 
@@ -574,9 +744,18 @@ That is context, not memory.
 
 A harness should be strict here.
 
+### 6. Rewrite the whole memory file
+
+That makes manual memory and generated memory fight each other.
+
+### 7. Call the LLM for every trivial turn
+
+That adds cost without adding useful long-term signal.
+
 ## A realistic first milestone
 
-The first concrete implementation milestone after this chapter should be:
+The first concrete implementation milestone after this chapter is already the
+runtime-loaded memory layer:
 
 1. add project/user memory sources to `HarnessAgent`
 2. support default discovery for project and user `AGENTS.md`
@@ -585,13 +764,22 @@ The first concrete implementation milestone after this chapter should be:
 5. preserve ordering and visible source paths
 6. emit a small runtime notice when memory was loaded
 
-That is enough to establish a real harness memory layer.
+That establishes a real harness memory layer.
+
+The next milestone is the careful updater:
+
+1. filter messages before extraction
+2. gate obvious non-memory turns before calling the LLM
+3. debounce updates
+4. merge new lines into a managed memory block
+5. flush pending updates on shutdown
 
 Later versions can add:
 
-- memory editing helpers
-- memory update policies
+- richer memory update policies
 - safety checks for stored content
+- removal or rewriting of stale learned memory
+- different updater targets for project and user scopes
 
 ## Recap
 
@@ -603,8 +791,10 @@ The key ideas are:
 - project memory and user memory have different scopes
 - only durable, reusable, safe guidance should be remembered
 - Markdown memory files fit this project well
-- the first version should load memory into the prompt at runtime before trying
-  to update it automatically
+- the first version should load memory into the prompt at runtime
+- memory updates should be filtered, gated, and debounced
+- the updater should own only a small managed block instead of rewriting the
+  whole file
 - default discovery can stay simple: project `.agents/AGENTS.md`, then user
   `~/.agents/AGENTS.md`
 

@@ -1,4 +1,4 @@
-- My name is Dzung Tri, always welcome me
+- My name is Dzung dep trai, always welcome me
 - Use `uv run pytest` for Python tests.
 - Prefer small, targeted edits over broad rewrites.
 - Read the relevant file before editing when fresh context matters.
