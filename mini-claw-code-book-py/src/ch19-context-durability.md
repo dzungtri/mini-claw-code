@@ -57,8 +57,13 @@ This chapter defines the next harness capability after bundled core tools:
 4. a clean way for `HarnessAgent` to continue after compaction
 5. the design boundary between context durability and long-term memory
 
-This chapter is still a design chapter for the Python reference. The following
-chapters will continue turning that design into concrete runtime pieces.
+In the Python implementation, this chapter now adds a real first slice:
+
+- a small `context.py` helper module
+- deterministic history compaction
+- one archived summary message inserted back into `messages`
+- a `HarnessAgent.enable_context_durability(...)` builder
+- a runtime notice when compaction happens
 
 The architectural boundary here is:
 
@@ -314,10 +319,156 @@ That preserves the existing runtime model:
 This is important because it means context durability can fit naturally into the
 current project instead of replacing its architecture.
 
+That is exactly what the reference code now does.
+
+It keeps the same core runtime model:
+
+- `messages` is still a `list[Message]`
+- `HarnessAgent` still runs a normal loop
+- context durability is a helper around that loop, not a new framework
+
 ## What the synthetic summary message should look like
 
 The simplest durable representation is a normal `Message.system(...)` or
 `Message.user(...)` entry that summarizes older work.
+
+The reference implementation uses a synthetic `Message.system(...)` entry with
+an explicit wrapper:
+
+```text
+<archived_context>
+...
+</archived_context>
+```
+
+That makes the compacted state visible and easy to detect in tests.
+
+## Why the first version is deterministic
+
+There are two broad ways to build compaction:
+
+1. use another model call to summarize history
+2. build a deterministic summary from older messages
+
+For this chapter, the second option is the better fit.
+
+Why:
+
+- it is easier to test
+- it does not add another provider dependency yet
+- it keeps the runtime behavior predictable
+- it fits the tutorial's step-by-step style
+
+So the first Python implementation summarizes archived history by extracting:
+
+- earlier user requests
+- assistant tool activity
+- key tool results
+- assistant conclusions
+
+That produces a summary that is simple, stable, and good enough for the first
+harness version.
+
+## The new builder
+
+The first harness API should stay small:
+
+```python
+agent = (
+    HarnessAgent(provider)
+    .enable_core_tools(handler)
+    .enable_context_durability(max_messages=12, keep_recent=6)
+)
+```
+
+That builder does three things:
+
+1. stores the compaction settings
+2. enables compaction in the runtime loop
+3. appends a prompt section that teaches the model how to treat archived context
+
+This keeps the feature aligned with the rest of the project:
+
+- opt-in
+- builder-style
+- small explicit parameters
+
+## Where compaction lives in the runtime
+
+The implementation is intentionally small:
+
+- `context.py` owns compaction rules
+- `HarnessAgent` calls compaction before the next model turn
+- the UI receives a notice when compaction happens
+
+That split is clean.
+
+It keeps `harness.py` readable without hiding the feature in a heavy subsystem.
+
+## The first trigger we actually implement
+
+The chapter discusses several possible triggers.
+
+The first reference implementation uses the simplest one:
+
+```text
+if live_message_count > max_messages:
+    compact older messages
+```
+
+That is the right starting point.
+
+Later chapters can become smarter with:
+
+- tool-output size
+- artifacts
+- token usage
+- phase boundaries
+
+But message count is enough to teach the pattern clearly.
+
+## How repeated compaction works
+
+One subtle problem is repeated compaction.
+
+If the runtime compacts once, then later compacts again, it should not create a
+mess of unrelated archive messages.
+
+So the first implementation merges existing archived context into the next
+archived summary.
+
+That keeps one durable archive message in the history instead of an ever-growing
+stack of synthetic system messages.
+
+## Visibility in the CLI
+
+Context durability should not be silent.
+
+When the harness compacts history, the operator should know it happened.
+
+So the runtime emits a notice like:
+
+```text
+Context compacted: archived 6 messages, kept 6 live messages.
+```
+
+The new harness CLI displays that notice through the same event path already
+used for MCP connection status.
+
+This is another good harness principle:
+
+- runtime state changes should be observable
+- not hidden
+
+## Tests to write
+
+The reference tests for Chapter 19 should cover:
+
+1. inserting an archived summary message
+2. keeping recent live messages untouched
+3. merging prior archive content on repeated compaction
+4. rendering the context-durability prompt section
+5. emitting a compaction notice during a harness run
 
 For example:
 

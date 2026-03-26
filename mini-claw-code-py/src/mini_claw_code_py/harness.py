@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Mapping
 
 from .agent import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, tool_summary
+from .context import (
+    ContextCompactionSettings,
+    compact_message_history,
+    render_context_durability_prompt_section,
+)
 from .mcp import MCPRegistry, MCPToolAdapter
 from .prompts import DEFAULT_PLAN_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, render_system_prompt
 from .skills import SkillRegistry
@@ -41,6 +46,9 @@ class HarnessAgent:
         self._core_tools_enabled = False
         self._ask_tool_enabled = False
         self._core_prompt_enabled = False
+        self._context_durability_enabled = False
+        self._context_prompt_enabled = False
+        self._context_settings = ContextCompactionSettings()
         self.plan_system_prompt = DEFAULT_PLAN_PROMPT_TEMPLATE
         self.execution_system_prompt = DEFAULT_SYSTEM_PROMPT_TEMPLATE
         self.exit_plan_def = ToolDefinition.new(
@@ -136,6 +144,32 @@ class HarnessAgent:
         )
         return self
 
+    def enable_context_durability(
+        self,
+        *,
+        max_messages: int = 12,
+        keep_recent: int = 6,
+    ) -> "HarnessAgent":
+        self._context_settings = ContextCompactionSettings(
+            max_messages=max_messages,
+            keep_recent=keep_recent,
+        )
+        self._context_durability_enabled = True
+
+        if not self._context_prompt_enabled:
+            section = render_context_durability_prompt_section()
+            self.execution_system_prompt = _append_prompt_section(
+                self.execution_system_prompt,
+                section,
+            )
+            self.plan_system_prompt = _append_prompt_section(
+                self.plan_system_prompt,
+                section,
+            )
+            self._context_prompt_enabled = True
+
+        return self
+
     async def plan(
         self,
         messages: list[Message],
@@ -176,6 +210,10 @@ class HarnessAgent:
                 await events.put(AgentNotice(mcp_summary))
 
             while True:
+                compaction = self._maybe_compact_messages(messages)
+                if compaction is not None:
+                    await events.put(AgentNotice(compaction.notice()))
+
                 stream_queue: asyncio.Queue[object] = asyncio.Queue()
 
                 async def forward() -> None:
@@ -248,6 +286,14 @@ class HarnessAgent:
             messages[0] = system
         else:
             messages.insert(0, system)
+
+    def _maybe_compact_messages(
+        self,
+        messages: list[Message],
+    ):
+        if not self._context_durability_enabled:
+            return None
+        return compact_message_history(messages, self._context_settings)
 
 
 def render_harness_prompt_section() -> str:

@@ -1,3 +1,11 @@
+from .context import (
+    ARCHIVED_CONTEXT_CLOSE,
+    ARCHIVED_CONTEXT_OPEN,
+    ContextCompactionResult,
+    ContextCompactionSettings,
+    compact_message_history,
+    render_context_durability_prompt_section,
+)
 from .agent import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, SimpleAgent, single_turn
 from .harness import HARNESS_CORE_PROMPT_SECTION, HarnessAgent, render_harness_prompt_section
 from .mcp import MCPRegistry, MCPServer, default_mcp_config_paths, parse_mcp_config
@@ -46,6 +54,8 @@ from .types import AssistantTurn, Message, Provider, StopReason, ToolCall, ToolD
 
 
 __all__ = [
+    "ARCHIVED_CONTEXT_CLOSE",
+    "ARCHIVED_CONTEXT_OPEN",
     "AgentDone",
     "AgentError",
     "AgentEvent",
@@ -57,6 +67,8 @@ __all__ = [
     "BashTool",
     "ChannelInputHandler",
     "CliInputHandler",
+    "ContextCompactionResult",
+    "ContextCompactionSettings",
     "DEFAULT_PLAN_PROMPT_TEMPLATE",
     "DEFAULT_SUBAGENT_SYSTEM_PROMPT",
     "DEFAULT_SYSTEM_PROMPT_TEMPLATE",
@@ -94,6 +106,7 @@ __all__ = [
     "ToolSet",
     "UserInputRequest",
     "WriteTool",
+    "compact_message_history",
     "default_mcp_config_paths",
     "default_skill_roots",
     "load_prompt_template",
@@ -102,6 +115,7 @@ __all__ = [
     "parse_skill_file",
     "render_subagent_prompt_section",
     "render_system_prompt",
+    "render_context_durability_prompt_section",
     "render_harness_prompt_section",
     "single_turn",
 ]
