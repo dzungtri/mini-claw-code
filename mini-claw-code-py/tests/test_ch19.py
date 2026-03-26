@@ -13,6 +13,7 @@ from mini_claw_code_py import (
     StopReason,
     ToolCall,
     compact_message_history,
+    estimate_messages_tokens,
     render_context_durability_prompt_section,
 )
 from mini_claw_code_py.types import AssistantTurn
@@ -99,6 +100,38 @@ def test_ch19_render_context_durability_prompt_section() -> None:
 
     assert "<context_durability>" in section
     assert "archived context summary" in section
+    assert "estimated token budget" in section
+
+
+def test_ch19_compaction_can_trigger_from_estimated_tokens() -> None:
+    messages = [
+        Message.system("System prompt"),
+        Message.user("A" * 240),
+        Message.assistant(
+            AssistantTurn(
+                text="B" * 240,
+                tool_calls=[],
+                stop_reason=StopReason.STOP,
+            )
+        ),
+        Message.user("Keep this recent request"),
+    ]
+
+    active_tokens_before = estimate_messages_tokens(messages[1:])
+    result = compact_message_history(
+        messages,
+        ContextCompactionSettings(
+            max_messages=10,
+            keep_recent=2,
+            max_estimated_tokens=80,
+        ),
+    )
+
+    assert result is not None
+    assert active_tokens_before > 80
+    assert "estimated_tokens" in result.triggered_by
+    assert result.estimated_tokens_before == active_tokens_before
+    assert result.estimated_tokens_after < result.estimated_tokens_before
 
 
 @pytest.mark.asyncio
@@ -158,3 +191,4 @@ async def test_ch19_harness_emits_compaction_notice_and_keeps_archive() -> None:
             notices.append(event.message)
 
     assert any(message.startswith("Context compacted:") for message in notices)
+    assert any("estimated tokens" in message for message in notices)

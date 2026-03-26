@@ -4,6 +4,8 @@ from .context import (
     ContextCompactionResult,
     ContextCompactionSettings,
     compact_message_history,
+    estimate_message_tokens,
+    estimate_messages_tokens,
     render_context_durability_prompt_section,
 )
 from .agent import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, SimpleAgent, single_turn
@@ -106,6 +108,8 @@ __all__ = [
     "ToolSet",
     "UserInputRequest",
     "WriteTool",
+    "estimate_message_tokens",
+    "estimate_messages_tokens",
     "compact_message_history",
     "default_mcp_config_paths",
     "default_skill_roots",

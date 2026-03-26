@@ -149,10 +149,12 @@ class HarnessAgent:
         *,
         max_messages: int = 12,
         keep_recent: int = 6,
+        max_estimated_tokens: int | None = 2400,
     ) -> "HarnessAgent":
         self._context_settings = ContextCompactionSettings(
             max_messages=max_messages,
             keep_recent=keep_recent,
+            max_estimated_tokens=max_estimated_tokens,
         )
         self._context_durability_enabled = True
 
