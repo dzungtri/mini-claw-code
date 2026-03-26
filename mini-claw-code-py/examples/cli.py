@@ -89,6 +89,7 @@ async def ui_event_loop(
 ) -> None:
     frame = 0
     tool_count = 0
+    collapsed_tools_reported = False
     streaming_text = False
 
     print(spinner_line(frame, spinner_label), end="", flush=True)
@@ -131,7 +132,11 @@ async def ui_event_loop(
             tool_count += 1
             streaming_text = False
             print(CLEAR_LINE, end="", flush=True)
-            print(render_tool_line(tool_count, event.summary), end="", flush=True)
+            if tool_count <= COLLAPSE_AFTER or event.name in {"subagent", "write_todos"}:
+                print(render_tool_line(tool_count, event.summary), end="", flush=True)
+            elif not collapsed_tools_reported:
+                collapsed_tools_reported = True
+                print(f"  {DIM}⎿  ... additional tool calls omitted ...{RESET}\n", end="", flush=True)
             print(spinner_line(frame, spinner_label), end="", flush=True)
         elif isinstance(event, AgentNotice):
             streaming_text = False
@@ -152,6 +157,13 @@ def drain_notice_queue(queue: "asyncio.Queue[AgentNotice]") -> None:
     while not queue.empty():
         notice = queue.get_nowait()
         print(f"  {DIM}{notice.message}{RESET}")
+
+
+def print_runtime_status(agent: HarnessAgent, *, plan_mode: bool) -> None:
+    mode = "planning" if plan_mode else "execution"
+    print(f"  {DIM}Mode: {mode}{RESET}")
+    print(f"  {DIM}{agent.todo_board().render()}{RESET}")
+    print()
 
 
 async def main() -> None:
@@ -186,6 +198,7 @@ async def main() -> None:
         .enable_user_memory_file(Path.home() / ".agents" / "AGENTS.md")
         .enable_memory_updates(debounce_seconds=2.0, target_scope="user")
         .enable_context_durability()
+        .enable_subagents(max_parallel_subagents=2)
         .enable_default_mcp(cwd=cwd)
         .enable_default_skills(cwd)
     )
@@ -209,9 +222,20 @@ async def main() -> None:
         if prompt == "/plan":
             plan_mode = not plan_mode
             state = "ON" if plan_mode else "OFF"
-            print(f"  {DIM}Plan mode {state}{RESET}\n")
+            print(f"  {DIM}Plan mode {state}{RESET}")
+            if plan_mode:
+                print(
+                    f"  {DIM}Planning is read-only: the agent can inspect, ask questions, and update todos, but it will not edit files or run subagents.{RESET}\n"
+                )
+            else:
+                print()
+            continue
+        if prompt in {"/status", "/todos"}:
+            print_runtime_status(agent, plan_mode=plan_mode)
             continue
 
+        if not plan_mode and agent.todo_board().all_completed():
+            agent.todo_board().clear()
         history.append(Message.user(prompt))
         print()
 

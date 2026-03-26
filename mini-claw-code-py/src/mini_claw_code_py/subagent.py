@@ -24,6 +24,29 @@ When you delegate:
 </subagent_system>"""
 
 
+def render_harness_subagent_prompt_section(max_parallel_subagents: int) -> str:
+    return f"""<subagent_orchestration>
+You have bundled subagent support in the harness runtime.
+
+Use `subagent` when:
+- the task is self-contained and needs several steps
+- the task would create too much local context for the parent
+- the parent mainly needs a concise returned summary
+
+Do not use `subagent` when:
+- the task is trivial or single-step
+- the task needs direct user clarification first
+- direct tool use is simpler than delegation
+
+Orchestration rules:
+1. The parent still owns the task and must synthesize child results.
+2. Give each child a clear brief with scope, constraints, and expected output.
+3. Keep child scope narrow and tool use bounded.
+4. Launch at most {max_parallel_subagents} subagent call(s) in one parent turn.
+5. If there are more child-worthy tasks than that, batch them across turns.
+</subagent_orchestration>"""
+
+
 DEFAULT_SUBAGENT_SYSTEM_PROMPT = """You are a delegated subagent working on a focused task.
 
 Guidelines:

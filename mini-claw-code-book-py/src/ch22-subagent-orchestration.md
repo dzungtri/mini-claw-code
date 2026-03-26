@@ -267,6 +267,58 @@ The parent is not just a launcher.
 
 It is the coordinator and synthesizer.
 
+## Task, subagent task, and todo list
+
+These three terms are easy to mix together.
+
+They should stay separate in the tutorial.
+
+### 1. The user task
+
+This is the overall request from the user.
+
+Example:
+
+> "Write four poems and store them in `outputs/`."
+
+The parent harness always owns this task.
+
+### 2. A subagent task
+
+This is a delegated child brief.
+
+Example:
+
+> "Write the Ruby poem and save it to `outputs/ruby_poem.txt`."
+
+A subagent task is one bounded slice of the user task.
+
+It should be delegated only when that slice is worth isolating.
+
+### 3. The todo list
+
+The todo list is the parent's visible progress tracker.
+
+It is not a child agent.
+
+It is not a second plan document.
+
+It is just a short runtime checklist such as:
+
+- inspect the current code
+- draft the plan
+- edit the target file
+- run the tests
+
+In the Python harness, this is stored as small in-memory runtime state and
+shown in the CLI as progress feedback.
+
+That gives the tutorial a simple but useful teaching model:
+
+- the parent owns the task
+- subagents own delegated slices
+- the todo list shows the parent's current execution picture
+
 ## How this extends the current codebase
 
 The project already has:
@@ -283,9 +335,9 @@ It should package them more intentionally.
 A future `HarnessAgent` might add helpers such as:
 
 ```python
-agent.enable_subagents()
-agent.default_subagent_tools(...)
-agent.max_parallel_subagents(3)
+agent.enable_subagents(
+    max_parallel_subagents=2,
+)
 ```
 
 Those do not create a new delegation system.
@@ -384,6 +436,120 @@ The first concrete implementation milestone after this chapter should be:
 
 That is enough to make delegation feel like part of the harness, not just one
 optional advanced tool.
+
+The current Python implementation should now make that concrete:
+
+1. `HarnessAgent.enable_subagents(...)` adds the bundled `subagent` tool
+2. the execution prompt gets an orchestration section with a visible child-call limit
+3. child tools default to a narrow core profile such as `read`, `write`, `edit`, `bash`
+4. child scope can be narrowed explicitly with `tool_names=[...]`
+5. the parent runtime accepts only a small number of subagent calls per turn
+6. extra child calls are rejected with a clear runtime notice
+7. the CLI distinguishes "subagent capability available" from actual "subagent started" and "subagent finished" notices
+8. the harness keeps a short `write_todos` list so progress is visible even when no child is running
+
+That is a strong first orchestration slice for this project.
+
+## What the implementation should look like
+
+The cleanest way to extend the current codebase is:
+
+```python
+agent = (
+    HarnessAgent(provider)
+    .enable_core_tools(handler)
+    .enable_subagents(
+        max_parallel_subagents=2,
+    )
+)
+```
+
+If the parent wants a narrower child profile:
+
+```python
+agent.enable_subagents(
+    tool_names=["read", "bash"],
+    max_parallel_subagents=2,
+)
+```
+
+This keeps the API aligned with the rest of the harness:
+
+- explicit builder methods
+- visible runtime defaults
+- no hidden orchestration service
+
+## The first concurrency policy
+
+The first Python implementation does **not** need a complex scheduler.
+
+It only needs one clear rule:
+
+- in one parent turn, run at most `N` subagent calls
+
+If the model emits more than that in one response:
+
+- execute only the first `N`
+- return an error result for the rest
+- emit a notice so the user can see the limit was applied
+
+This teaches batching without adding a large orchestration subsystem.
+
+## What the user should see in the CLI
+
+This is an important runtime-design point.
+
+A user should be able to tell the difference between:
+
+- subagent support is available
+- the parent is working directly
+- a child task has actually started
+- a child task has finished
+
+So the CLI should surface different signals:
+
+- a capability notice at startup
+- a visible `write_todos` task list
+- `subagent started ...` notices when delegation really happens
+- `subagent finished ...` notices when results come back
+- end-of-turn todo completion so finished work does not stay stuck as `in_progress`
+
+Without that distinction, a user may wrongly assume delegation happened when
+the parent only used direct tools.
+
+That exact confusion is common in real agent UIs.
+
+## Child scope in the current implementation
+
+The most important runtime control is still child scope.
+
+So the current harness should make child scope explicit through the tool list:
+
+- default child scope: bundled core tools
+- narrower child scope: caller passes a smaller `tool_names` list
+- no recursive `subagent` tool inside children by default
+- no `ask_user` inside children by default
+
+That is a good first orchestration policy because it keeps children useful
+without letting them become uncontrolled copies of the parent.
+
+## Conservative planning-mode policy
+
+The current harness should stay conservative in planning mode.
+
+That means the bundled `subagent` tool should remain unavailable there unless
+you intentionally design a read-only planning-child policy later.
+
+This is a good tutorial tradeoff:
+
+- execution mode gets real orchestration
+- planning mode stays easy to reason about
+
+The current Python harness adds one useful exception:
+
+- planning mode may still update the internal todo list with `write_todos`
+
+That is safe because it changes only runtime state, not the user's files.
 
 ## Recap
 

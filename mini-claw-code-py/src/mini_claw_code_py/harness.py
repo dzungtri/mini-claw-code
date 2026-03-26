@@ -22,6 +22,8 @@ from .mcp import MCPRegistry, MCPToolAdapter
 from .prompts import DEFAULT_PLAN_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, render_system_prompt
 from .skills import SkillRegistry
 from .streaming import StreamDone, StreamProvider, TextDelta
+from .subagent import SubagentTool, render_harness_subagent_prompt_section
+from .todos import TodoBoard, WriteTodosTool, render_todo_prompt_section
 from .tools import AskTool, BashTool, EditTool, InputHandler, ReadTool, WriteTool
 from .types import Message, Provider, StopReason, ToolDefinition, ToolSet
 from .workspace import (
@@ -42,13 +44,15 @@ Bundled core tools:
 - `write`
 - `edit`
 - `bash`
+- `write_todos`
 - `ask_user` when the runtime provides it
 
 Default operating norms:
 1. Read before editing when you need fresh context.
 2. Prefer precise edits over broad rewrites when possible.
 3. Use shell commands to inspect and verify work when they are the clearest tool.
-4. Ask the user when required information is missing or ambiguous.
+4. Use `write_todos` to maintain a short visible task list for non-trivial work.
+5. Ask the user when required information is missing or ambiguous.
 </harness_core_tools>"""
 
 
@@ -56,16 +60,23 @@ class HarnessAgent:
     def __init__(self, provider: StreamProvider) -> None:
         self.provider = provider
         self.tools = ToolSet()
-        self._read_only = {"bash", "read", "ask_user"}
+        self._read_only = {"bash", "read", "ask_user", "write_todos"}
         self._memory_registry = MemoryRegistry()
         self._memory_update_queue: MemoryUpdateQueue | None = None
         self._memory_update_scope = "user"
         self._background_notice_queue: "asyncio.Queue[AgentNotice]" = asyncio.Queue()
         self._workspace_config: WorkspaceConfig | None = None
         self._mcp_registry: MCPRegistry | None = None
+        self._todo_board = TodoBoard()
         self._core_tools_enabled = False
         self._ask_tool_enabled = False
         self._core_prompt_enabled = False
+        self._subagent_enabled = False
+        self._subagent_prompt_enabled = False
+        self._subagent_provider: Provider | None = None
+        self._subagent_tool_names: tuple[str, ...] = ()
+        self._subagent_max_turns = 8
+        self._max_parallel_subagents = 2
         self._context_durability_enabled = False
         self._context_prompt_enabled = False
         self._context_settings = ContextCompactionSettings()
@@ -113,9 +124,21 @@ class HarnessAgent:
                 self.plan_system_prompt,
                 HARNESS_CORE_PROMPT_SECTION,
             )
+            todo_section = render_todo_prompt_section()
+            self.execution_system_prompt = _append_prompt_section(
+                self.execution_system_prompt,
+                todo_section,
+            )
+            self.plan_system_prompt = _append_prompt_section(
+                self.plan_system_prompt,
+                todo_section,
+            )
             self._core_prompt_enabled = True
 
         return self
+
+    def todo_board(self) -> TodoBoard:
+        return self._todo_board
 
     def workspace(
         self,
@@ -227,6 +250,47 @@ class HarnessAgent:
             cwd=target_cwd,
             extra_sections=[section],
         )
+        return self
+
+    def enable_subagents(
+        self,
+        provider: Provider | None = None,
+        *,
+        tool_names: list[str] | None = None,
+        max_turns: int = 8,
+        max_parallel_subagents: int = 2,
+        system_prompt: str | None = None,
+    ) -> "HarnessAgent":
+        chat_provider = provider or self._default_chat_provider()
+        if chat_provider is None:
+            raise ValueError(
+                "Subagents require a Provider with a chat() method. "
+                "Pass provider=... explicitly when the main stream provider does not support chat()."
+            )
+        if max_parallel_subagents < 1:
+            raise ValueError("max_parallel_subagents must be at least 1")
+
+        self._subagent_provider = chat_provider
+        self._subagent_tool_names = tuple(tool_names or self._default_subagent_tool_names())
+        self._subagent_max_turns = max_turns
+        self._max_parallel_subagents = max_parallel_subagents
+
+        tool = SubagentTool(
+            chat_provider,
+            self._subagent_tools_factory,
+        ).max_turns(max_turns)
+        if system_prompt is not None:
+            tool.system_prompt(system_prompt)
+        self.tool(tool)
+        self._subagent_enabled = True
+
+        if not self._subagent_prompt_enabled:
+            section = render_harness_subagent_prompt_section(self._max_parallel_subagents)
+            self.execution_system_prompt = _append_prompt_section(
+                self.execution_system_prompt,
+                section,
+            )
+            self._subagent_prompt_enabled = True
         return self
 
     def enable_default_mcp(
@@ -388,8 +452,27 @@ class HarnessAgent:
             if workspace_summary:
                 await events.put(AgentNotice(workspace_summary))
 
+            if self._subagent_enabled:
+                await events.put(
+                    AgentNotice(
+                        "Subagent capability available: "
+                        f"tools={list(self._subagent_tool_names)}, "
+                        f"max_parallel={self._max_parallel_subagents}, "
+                        f"max_turns={self._subagent_max_turns}"
+                    )
+                )
+
             if mcp_summary:
                 await events.put(AgentNotice(mcp_summary))
+
+            if allowed is not None:
+                allowed_tools = ", ".join(sorted(definition.name for definition in defs))
+                await events.put(
+                    AgentNotice(
+                        "Planning mode active: external writes and subagents are blocked. "
+                        f"Allowed tools: {allowed_tools}."
+                    )
+                )
 
             while True:
                 compaction = self._maybe_compact_messages(messages)
@@ -422,6 +505,8 @@ class HarnessAgent:
                     if not text:
                         text = "I don't have a textual reply for that turn. Please try again."
                     messages.append(Message.assistant(turn))
+                    if allowed is None and self._todo_board.complete_all():
+                        await events.put(AgentNotice(self._todo_board.notice()))
                     notice = await self._queue_memory_update(messages)
                     if notice:
                         await events.put(AgentNotice(notice))
@@ -430,6 +515,11 @@ class HarnessAgent:
 
                 results: list[tuple[str, str]] = []
                 exit_plan = False
+
+                subagent_calls_seen = 0
+                subagent_tasks: list[asyncio.Task[str]] = []
+                subagent_positions: list[tuple[str, int]] = []
+                subagent_briefs: list[str] = []
 
                 for call in turn.tool_calls:
                     if allowed is not None and call.name == "exit_plan":
@@ -450,12 +540,57 @@ class HarnessAgent:
                     tool = runtime_tools.get(call.name)
                     if tool is None:
                         content = f"error: unknown tool `{call.name}`"
+                    elif call.name == "subagent" and allowed is None:
+                        subagent_calls_seen += 1
+                        if subagent_calls_seen > self._max_parallel_subagents:
+                            content = (
+                                "error: too many subagent calls in one turn "
+                                f"(limit: {self._max_parallel_subagents})"
+                            )
+                        else:
+                            brief = _tool_detail(call.arguments)
+                            await events.put(
+                                AgentNotice(
+                                    f"Subagent started ({subagent_calls_seen}/{self._max_parallel_subagents}): {brief}"
+                                )
+                            )
+                            subagent_tasks.append(
+                                asyncio.create_task(self._run_subagent_call(tool, call.arguments))
+                            )
+                            subagent_positions.append((call.id, len(results)))
+                            subagent_briefs.append(brief)
+                            results.append((call.id, ""))
+                            continue
                     else:
                         try:
                             content = await tool.call(call.arguments)
                         except Exception as exc:
                             content = f"error: {exc}"
                     results.append((call.id, content))
+                    if call.name == "write_todos" and not content.startswith("error:"):
+                        await events.put(AgentNotice(self._todo_board.notice()))
+
+                if subagent_tasks:
+                    subagent_outputs = await asyncio.gather(*subagent_tasks)
+                    for index, ((call_id, result_index), content) in enumerate(
+                        zip(subagent_positions, subagent_outputs, strict=False),
+                        start=1,
+                    ):
+                        results[result_index] = (call_id, content)
+                        brief = subagent_briefs[index - 1]
+                        await events.put(
+                            AgentNotice(
+                                f"Subagent finished ({index}/{len(subagent_outputs)}): {brief}"
+                            )
+                        )
+
+                if subagent_calls_seen > self._max_parallel_subagents:
+                    await events.put(
+                        AgentNotice(
+                            "Subagent limit applied: "
+                            f"kept first {self._max_parallel_subagents} call(s) in this turn."
+                        )
+                    )
 
                 messages.append(Message.assistant(turn))
                 for call_id, content in results:
@@ -504,6 +639,13 @@ class HarnessAgent:
             return provider  # type: ignore[return-value]
         return None
 
+    def _default_chat_provider(self) -> Provider | None:
+        provider = self.provider
+        chat = getattr(provider, "chat", None)
+        if callable(chat):
+            return provider  # type: ignore[return-value]
+        return None
+
     async def _queue_memory_update(self, messages: list[Message]) -> str | None:
         if self._memory_update_queue is None:
             return None
@@ -535,11 +677,33 @@ class HarnessAgent:
             self.tool(WriteTool())
             self.tool(EditTool())
             self.tool(BashTool())
+            self.tool(WriteTodosTool(self._todo_board))
             return
         self.tool(WorkspaceReadTool(self._workspace_config))
         self.tool(WorkspaceWriteTool(self._workspace_config))
         self.tool(WorkspaceEditTool(self._workspace_config))
         self.tool(WorkspaceBashTool(self._workspace_config))
+        self.tool(WriteTodosTool(self._todo_board))
+
+    def _default_subagent_tool_names(self) -> list[str]:
+        candidates = ["read", "write", "edit", "bash"]
+        return [name for name in candidates if self.tools.get(name) is not None]
+
+    def _subagent_tools_factory(self) -> ToolSet:
+        tools = ToolSet()
+        for name in self._subagent_tool_names:
+            tool = self.tools.get(name)
+            if tool is None or name == "subagent":
+                continue
+            tools.push(tool)
+        return tools
+
+    @staticmethod
+    async def _run_subagent_call(tool: object, args: object) -> str:
+        try:
+            return await tool.call(args)  # type: ignore[call-arg]
+        except Exception as exc:
+            return f"error: {exc}"
 
 
 def render_harness_prompt_section() -> str:
@@ -556,3 +720,19 @@ def _append_prompt_section(prompt: str, section: str) -> str:
     if not prompt_text:
         return section_text
     return f"{prompt_text}\n\n{section_text}"
+
+
+def _tool_detail(args: object) -> str:
+    if not isinstance(args, dict):
+        return "task"
+    for key in ("task", "description", "path", "command", "question"):
+        value = args.get(key)
+        if isinstance(value, str) and value.strip():
+            text = value.strip()
+            if len(text) > 80:
+                return text[:77] + "..."
+            return text
+    items = args.get("items", args.get("todos"))
+    if isinstance(items, list):
+        return f"{len(items)} item(s)"
+    return "task"

@@ -105,6 +105,11 @@ The default read-only set is:
 That gives the model enough power to inspect the repository and ask clarifying
 questions without mutating anything.
 
+Later harness chapters add one small extension to this idea:
+
+- `write_todos` may also be allowed in planning mode because it updates only
+  internal runtime state, not user files
+
 ## The planning prompt
 
 The model needs to know it is in planning mode. Otherwise it will treat the

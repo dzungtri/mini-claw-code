@@ -23,7 +23,7 @@ def test_ch18_enable_core_tools_with_handler_registers_default_profile() -> None
 
     names = [definition.name for definition in agent.tools.definitions()]
 
-    assert names == ["read", "write", "edit", "bash", "ask_user"]
+    assert names == ["read", "write", "edit", "bash", "write_todos", "ask_user"]
     assert HARNESS_CORE_PROMPT_SECTION in agent.execution_system_prompt
     assert HARNESS_CORE_PROMPT_SECTION in agent.plan_system_prompt
 
@@ -33,7 +33,7 @@ def test_ch18_enable_core_tools_without_handler_skips_ask_user() -> None:
 
     names = [definition.name for definition in agent.tools.definitions()]
 
-    assert names == ["read", "write", "edit", "bash"]
+    assert names == ["read", "write", "edit", "bash", "write_todos"]
 
 
 def test_ch18_enable_core_tools_is_idempotent_and_can_add_ask_user_later() -> None:
@@ -43,8 +43,9 @@ def test_ch18_enable_core_tools_is_idempotent_and_can_add_ask_user_later() -> No
 
     names = [definition.name for definition in agent.tools.definitions()]
 
-    assert names == ["read", "write", "edit", "bash", "ask_user"]
+    assert names == ["read", "write", "edit", "bash", "write_todos", "ask_user"]
     assert agent.execution_system_prompt.count("<harness_core_tools>") == 1
+    assert agent.execution_system_prompt.count("<todo_tracking>") == 1
 
 
 @pytest.mark.asyncio

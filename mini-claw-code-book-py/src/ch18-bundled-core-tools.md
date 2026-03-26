@@ -167,18 +167,20 @@ Start with the tools you already have and already trust:
 - `write`
 - `edit`
 - `bash`
+- `write_todos`
 - `ask_user`
 
 That gives the harness a practical first capability profile without collapsing
 every future harness feature into the same chapter.
 
-That gives the harness five important properties immediately:
+That gives the harness six important properties immediately:
 
 1. it can inspect files
 2. it can create files
 3. it can patch files
 4. it can run shell commands
-5. it can ask the user for clarification when needed
+5. it can keep a short visible task list
+6. it can ask the user for clarification when needed
 
 That is already a real bundled coding-agent profile.
 
@@ -196,7 +198,6 @@ level.
 For example:
 
 - `subagent` belongs to orchestration, which gets its own chapter
-- `write_todos` belongs to planning and progress tracking
 - search tools may require new APIs or external integrations
 - MCP tools belong to tool-universe management
 
@@ -305,6 +306,7 @@ def enable_core_tools(
     self.tool(WriteTool())
     self.tool(EditTool())
     self.tool(BashTool())
+    self.tool(WriteTodosTool(self._todo_board))
 
     if handler is not None:
         self.tool(AskTool(handler))
@@ -341,6 +343,7 @@ Examples:
 - `write`
 - `edit`
 - `bash`
+- `write_todos`
 - `ask_user`
 
 ### Category 2: optional feature tools
@@ -350,7 +353,6 @@ These belong to later runtime capabilities and may require extra setup.
 Examples:
 
 - `subagent`
-- `write_todos`
 - search tools
 - MCP-loaded tools
 

@@ -41,9 +41,15 @@ AgentEvent = AgentTextDelta | AgentToolCall | AgentDone | AgentError | AgentNoti
 
 def tool_summary(call: ToolCall) -> str:
     detail = None
+    if call.name == "write_todos" and isinstance(call.arguments, dict):
+        items = call.arguments.get("items", call.arguments.get("todos"))
+        if isinstance(items, list):
+            return f"    [write_todos: {len(items)} item(s)]"
     if isinstance(call.arguments, dict):
         detail = (
-            call.arguments.get("command")
+            call.arguments.get("task")
+            or call.arguments.get("description")
+            or call.arguments.get("command")
             or call.arguments.get("path")
             or call.arguments.get("question")
         )
