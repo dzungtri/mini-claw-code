@@ -63,6 +63,7 @@ In the Python implementation, this chapter now adds a real first slice:
 - deterministic history compaction
 - one archived summary message inserted back into `messages`
 - a `HarnessAgent.enable_context_durability(...)` builder
+- both message-count and estimated-token triggers
 - a runtime notice when compaction happens
 
 The architectural boundary here is:
@@ -147,6 +148,18 @@ flowchart LR
     Split -->|No| Compact["compacted summary / archive"]
     Active --> Agent["HarnessAgent"]
     Compact --> Agent
+```
+
+And the runtime now evaluates compaction with two practical budget checks:
+
+```mermaid
+flowchart TD
+    Active["active messages"] --> Count{"message count > max_messages?"}
+    Active --> Tokens{"estimated tokens > max_estimated_tokens?"}
+    Count -->|Yes| Compact["compact older messages"]
+    Tokens -->|Yes| Compact
+    Count -->|No| Continue["keep full active context"]
+    Tokens -->|No| Continue
 ```
 
 The important part is this:
@@ -246,14 +259,28 @@ That is why context durability should come **before** the memory chapter.
 
 ## What should trigger compaction?
 
-The first implementation in this project does not need a perfect token-aware
-algorithm yet.
+The runtime needs more than one trigger.
 
-But the runtime still needs a trigger model.
+Message count alone is too weak, because a short history can still be huge if
+the messages contain:
+
+- long tool results
+- large shell output
+- big file reads
+- verbose assistant text
+
+So the first good harness rule is:
+
+- compact on message-count pressure
+- compact on context-window pressure
+
+In the reference implementation, context-window pressure is represented by an
+**estimated token budget**.
 
 Practical trigger families are:
 
 - too many messages
+- too many estimated tokens
 - too many tool-heavy turns
 - explicit phase boundary
 - user moves to a new subtask
@@ -275,6 +302,20 @@ if len(messages) > N:
 ```
 
 This is easy to teach and easy to test.
+
+### Estimated-token trigger
+
+The runtime also needs a budget for approximate context size:
+
+```text
+if estimated_tokens(messages) > token_budget:
+    compact older messages
+```
+
+This matters because context windows are fundamentally token-bounded, not
+message-bounded.
+
+That means this trigger is not optional in a serious harness.
 
 ### Tool-heavy trigger
 
@@ -298,6 +339,36 @@ A harness can also compact when a natural phase ends:
 
 This is often cleaner than waiting for pure size thresholds.
 
+## Why the first version uses estimated tokens
+
+Exact token counting is harder than it looks.
+
+Different providers and models may tokenize differently, and the real request
+payload may include:
+
+- message wrappers
+- tool schemas
+- hidden protocol overhead
+- provider-specific formatting
+
+So the first reference implementation uses a lightweight heuristic:
+
+- roughly 1 token per 4 characters
+- plus a small fixed per-message overhead
+- including assistant text, tool calls, and tool results
+
+This is not perfect.
+
+But it is still the right first step because it is:
+
+- deterministic
+- provider-agnostic
+- easy to test
+- good enough to notice dangerous context growth early
+
+Later chapters can always add more exact accounting if a specific provider path
+needs it.
+
 ## The right first design in this project
 
 Because `mini-claw-code-py` is intentionally lightweight, the first version
@@ -306,7 +377,7 @@ should not start with a deep token-accounting subsystem.
 The cleanest first design is:
 
 1. keep full `messages` while the history is still small
-2. compact older assistant/tool turns when a threshold is crossed
+2. compact older assistant/tool turns when either threshold is crossed
 3. keep recent turns live
 4. inject one synthetic summary message back into the conversation
 
@@ -377,7 +448,11 @@ The first harness API should stay small:
 agent = (
     HarnessAgent(provider)
     .enable_core_tools(handler)
-    .enable_context_durability(max_messages=12, keep_recent=6)
+    .enable_context_durability(
+        max_messages=12,
+        keep_recent=6,
+        max_estimated_tokens=2400,
+    )
 )
 ```
 
@@ -416,7 +491,19 @@ if live_message_count > max_messages:
     compact older messages
 ```
 
-That is the right starting point.
+That is only half the story now.
+
+The actual harness implementation uses:
+
+```text
+if live_message_count > max_messages:
+    compact
+elif estimated_tokens(live_messages) > max_estimated_tokens:
+    compact
+```
+
+That is a much better teaching model because it matches how real context
+windows fail.
 
 Later chapters can become smarter with:
 
@@ -449,7 +536,8 @@ When the harness compacts history, the operator should know it happened.
 So the runtime emits a notice like:
 
 ```text
-Context compacted: archived 6 messages, kept 6 live messages.
+Context compacted: archived 6 messages, kept 6 live messages, estimated tokens
+2810->944 (trigger: estimated_tokens).
 ```
 
 The new harness CLI displays that notice through the same event path already
@@ -467,8 +555,9 @@ The reference tests for Chapter 19 should cover:
 1. inserting an archived summary message
 2. keeping recent live messages untouched
 3. merging prior archive content on repeated compaction
-4. rendering the context-durability prompt section
-5. emitting a compaction notice during a harness run
+4. estimated-token compaction even when message count is still small
+5. rendering the context-durability prompt section
+6. emitting a compaction notice during a harness run
 
 For example:
 
