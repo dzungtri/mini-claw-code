@@ -28,16 +28,85 @@ from mini_claw_code_py import (
     render_system_prompt,
 )
 
+SPINNER = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+SPINNER_INTERVAL = 0.08
+COLLAPSE_AFTER = 3
+
+BOLD_CYAN = "\x1b[1;36m"
+BOLD_MAGENTA = "\x1b[1;35m"
+BOLD_GREEN = "\x1b[1;32m"
+YELLOW = "\x1b[33m"
+RED = "\x1b[31m"
+DIM = "\x1b[2m"
+RESET = "\x1b[0m"
+CLEAR_LINE = "\x1b[2K\r"
+
+
+def spinner_line(frame: int, label: str) -> str:
+    ch = SPINNER[frame % len(SPINNER)]
+    return f"{BOLD_MAGENTA}⏺{RESET} {YELLOW}{ch} {label}{RESET}"
+
+
+def render_tool_line(tool_count: int, summary: str) -> str:
+    if tool_count <= COLLAPSE_AFTER:
+        return f"  {DIM}⎿  {summary}{RESET}\n"
+    extra = tool_count - COLLAPSE_AFTER
+    suffix = "more" if extra > 1 else "more"
+    return f"  {DIM}⎿  ... and {extra} {suffix}{RESET}\n"
+
+
+def prompt_prefix(plan_mode: bool) -> str:
+    if plan_mode:
+        return f"{BOLD_GREEN}[plan]{RESET} {BOLD_CYAN}>{RESET} "
+    return f"{BOLD_CYAN}>{RESET} "
+
+
+def read_option_answer(req: UserInputRequest) -> str:
+    print()
+    print(f"  {BOLD_CYAN}{req.question}{RESET}")
+    for index, option in enumerate(req.options, start=1):
+        print(f"    {index}) {option}")
+    answer = input("  > ").strip()
+    if answer.isdigit():
+        number = int(answer)
+        if 1 <= number <= len(req.options):
+            return req.options[number - 1]
+    return answer
+
+
+def read_text_answer(req: UserInputRequest) -> str:
+    print()
+    print(f"  {BOLD_CYAN}{req.question}{RESET}")
+    return input("  > ").strip()
+
+
+async def handle_input_request(req: UserInputRequest) -> None:
+    if req.options:
+        answer = await asyncio.to_thread(read_option_answer, req)
+    else:
+        answer = await asyncio.to_thread(read_text_answer, req)
+    req.response_future.set_result(answer)
+
 
 async def ui_event_loop(
     queue: "asyncio.Queue[object]",
     input_queue: "asyncio.Queue[UserInputRequest]",
+    *,
+    spinner_label: str,
 ) -> None:
+    frame = 0
+    tool_count = 0
+    streaming_text = False
+
+    print(spinner_line(frame, spinner_label), end="", flush=True)
+
     while True:
         agent_task = asyncio.create_task(queue.get())
         input_task = asyncio.create_task(input_queue.get())
+        tick_task = asyncio.create_task(asyncio.sleep(SPINNER_INTERVAL))
+
         done, pending = await asyncio.wait(
-            [agent_task, input_task],
+            [agent_task, input_task, tick_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
 
@@ -46,33 +115,39 @@ async def ui_event_loop(
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
 
-        events = [task.result() for task in done]
-        events.sort(key=lambda event: 0 if isinstance(event, UserInputRequest) else 1)
+        if tick_task in done:
+            if not streaming_text:
+                frame += 1
+                print(f"\r{spinner_line(frame, spinner_label)}", end="", flush=True)
+            continue
 
-        for event in events:
-            if isinstance(event, UserInputRequest):
-                print()
-                print(f"  {event.question}")
-                for index, option in enumerate(event.options, start=1):
-                    print(f"    {index}) {option}")
-                answer = input("  > ").strip()
-                if answer.isdigit():
-                    number = int(answer)
-                    if 1 <= number <= len(event.options):
-                        answer = event.options[number - 1]
-                event.response_future.set_result(answer)
-                continue
+        if input_task in done:
+            print(CLEAR_LINE, end="", flush=True)
+            streaming_text = False
+            await handle_input_request(input_task.result())
+            print(spinner_line(frame, spinner_label), end="", flush=True)
+            continue
 
-            if isinstance(event, AgentTextDelta):
-                print(event.text, end="", flush=True)
-            elif isinstance(event, AgentToolCall):
-                print(f"\n{event.summary}")
-            elif isinstance(event, AgentDone):
-                print("\n")
-                return
-            elif isinstance(event, AgentError):
-                print(f"\nerror: {event.error}\n")
-                return
+        event = agent_task.result()
+        if isinstance(event, AgentTextDelta):
+            if not streaming_text:
+                print(CLEAR_LINE, end="", flush=True)
+                streaming_text = True
+            print(event.text, end="", flush=True)
+        elif isinstance(event, AgentToolCall):
+            tool_count += 1
+            streaming_text = False
+            print(CLEAR_LINE, end="", flush=True)
+            print(render_tool_line(tool_count, event.summary), end="", flush=True)
+            print(spinner_line(frame, spinner_label), end="", flush=True)
+        elif isinstance(event, AgentDone):
+            print(CLEAR_LINE, end="", flush=True)
+            print()
+            return
+        elif isinstance(event, AgentError):
+            print(CLEAR_LINE, end="", flush=True)
+            print(f"{BOLD_MAGENTA}⏺{RESET} {RED}error: {event.error}{RESET}\n")
+            return
 
 
 async def main() -> None:
@@ -118,11 +193,11 @@ async def main() -> None:
 
     history: list[Message] = []
     plan_mode = False
+    print()
 
     while True:
-        prefix = "[plan] > " if plan_mode else "> "
         try:
-            prompt = input(prefix).strip()
+            prompt = input(prompt_prefix(plan_mode)).strip()
         except EOFError:
             print()
             return
@@ -132,28 +207,38 @@ async def main() -> None:
         if prompt == "/plan":
             plan_mode = not plan_mode
             state = "ON" if plan_mode else "OFF"
-            print(f"plan mode {state}\n")
+            print(f"  {DIM}Plan mode {state}{RESET}\n")
             continue
 
         history.append(Message.user(prompt))
+        print()
+
         if plan_mode:
-            worker = asyncio.create_task(agent.plan(history, event_queue))
-            await ui_event_loop(event_queue, input_queue)
-            plan_text = await worker
-            approval = input("Accept this plan? [y/n/feedback] ").strip()
-            if approval.lower() == "y":
-                event_queue = asyncio.Queue()
-                history.append(Message.user("Proceed with the approved plan."))
-                worker = asyncio.create_task(agent.execute(history, event_queue))
-                await ui_event_loop(event_queue, input_queue)
-                await worker
-            elif approval.lower() not in {"n", "no"}:
+            while True:
+                worker = asyncio.create_task(agent.plan(history, event_queue))
+                await ui_event_loop(event_queue, input_queue, spinner_label="Planning...")
+                plan_text = await worker
+
+                approval = input(
+                    f"  {BOLD_GREEN}Accept this plan?{RESET} {DIM}[y/n/feedback]{RESET} "
+                ).strip()
+                print()
+
+                if approval.lower() == "y":
+                    event_queue = asyncio.Queue()
+                    history.append(Message.user("Proceed with the approved plan."))
+                    worker = asyncio.create_task(agent.execute(history, event_queue))
+                    await ui_event_loop(event_queue, input_queue, spinner_label="Executing...")
+                    await worker
+                    break
+                if approval.lower() in {"n", "no"}:
+                    print(f"{DIM}Plan rejected:{RESET}\n{plan_text}\n")
+                    break
+
                 history.append(Message.user(f"Revise the plan with this feedback: {approval}"))
-            else:
-                print(f"Plan rejected:\n{plan_text}\n")
         else:
             worker = asyncio.create_task(agent.execute(history, event_queue))
-            await ui_event_loop(event_queue, input_queue)
+            await ui_event_loop(event_queue, input_queue, spinner_label="Thinking...")
             await worker
 
 
