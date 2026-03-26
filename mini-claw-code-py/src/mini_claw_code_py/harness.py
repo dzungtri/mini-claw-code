@@ -24,6 +24,14 @@ from .skills import SkillRegistry
 from .streaming import StreamDone, StreamProvider, TextDelta
 from .tools import AskTool, BashTool, EditTool, InputHandler, ReadTool, WriteTool
 from .types import Message, Provider, StopReason, ToolDefinition, ToolSet
+from .workspace import (
+    WorkspaceBashTool,
+    WorkspaceConfig,
+    WorkspaceEditTool,
+    WorkspaceReadTool,
+    WorkspaceWriteTool,
+    render_workspace_prompt_section,
+)
 
 
 HARNESS_CORE_PROMPT_SECTION = """<harness_core_tools>
@@ -53,6 +61,7 @@ class HarnessAgent:
         self._memory_update_queue: MemoryUpdateQueue | None = None
         self._memory_update_scope = "user"
         self._background_notice_queue: "asyncio.Queue[AgentNotice]" = asyncio.Queue()
+        self._workspace_config: WorkspaceConfig | None = None
         self._mcp_registry: MCPRegistry | None = None
         self._core_tools_enabled = False
         self._ask_tool_enabled = False
@@ -88,10 +97,7 @@ class HarnessAgent:
         handler: InputHandler | None = None,
     ) -> "HarnessAgent":
         if not self._core_tools_enabled:
-            self.tool(ReadTool())
-            self.tool(WriteTool())
-            self.tool(EditTool())
-            self.tool(BashTool())
+            self._install_core_tools()
             self._core_tools_enabled = True
 
         if handler is not None and not self._ask_tool_enabled:
@@ -109,6 +115,100 @@ class HarnessAgent:
             )
             self._core_prompt_enabled = True
 
+        return self
+
+    def workspace(
+        self,
+        root: str | Path,
+    ) -> "HarnessAgent":
+        existing = self._workspace_config
+        self._workspace_config = WorkspaceConfig(
+            root=Path(root),
+            scratch=existing.scratch if existing is not None else None,
+            outputs=existing.outputs if existing is not None else None,
+            uploads=existing.uploads if existing is not None else None,
+            allow_destructive_bash=existing.allow_destructive_bash if existing is not None else False,
+        )
+        self._refresh_workspace_tools()
+        return self
+
+    def scratch_dir(
+        self,
+        path: str | Path,
+    ) -> "HarnessAgent":
+        config = self._require_or_default_workspace()
+        self._workspace_config = WorkspaceConfig(
+            root=config.root,
+            scratch=Path(path),
+            outputs=config.outputs,
+            uploads=config.uploads,
+            allow_destructive_bash=config.allow_destructive_bash,
+        )
+        self._refresh_workspace_tools()
+        return self
+
+    def outputs_dir(
+        self,
+        path: str | Path,
+    ) -> "HarnessAgent":
+        config = self._require_or_default_workspace()
+        self._workspace_config = WorkspaceConfig(
+            root=config.root,
+            scratch=config.scratch,
+            outputs=Path(path),
+            uploads=config.uploads,
+            allow_destructive_bash=config.allow_destructive_bash,
+        )
+        self._refresh_workspace_tools()
+        return self
+
+    def uploads_dir(
+        self,
+        path: str | Path,
+    ) -> "HarnessAgent":
+        config = self._require_or_default_workspace()
+        self._workspace_config = WorkspaceConfig(
+            root=config.root,
+            scratch=config.scratch,
+            outputs=config.outputs,
+            uploads=Path(path),
+            allow_destructive_bash=config.allow_destructive_bash,
+        )
+        self._refresh_workspace_tools()
+        return self
+
+    def enable_workspace(
+        self,
+        root: str | Path,
+        *,
+        scratch: str | Path | None = None,
+        outputs: str | Path | None = None,
+        uploads: str | Path | None = None,
+        allow_destructive_bash: bool = False,
+    ) -> "HarnessAgent":
+        self._workspace_config = WorkspaceConfig(
+            root=Path(root),
+            scratch=Path(scratch) if scratch is not None else None,
+            outputs=Path(outputs) if outputs is not None else None,
+            uploads=Path(uploads) if uploads is not None else None,
+            allow_destructive_bash=allow_destructive_bash,
+        )
+        self._refresh_workspace_tools()
+        return self
+
+    def allow_destructive_bash(
+        self,
+        enabled: bool = True,
+    ) -> "HarnessAgent":
+        config = self._require_or_default_workspace()
+        self._workspace_config = WorkspaceConfig(
+            root=config.root,
+            scratch=config.scratch,
+            outputs=config.outputs,
+            uploads=config.uploads,
+            allow_destructive_bash=enabled,
+        )
+        self._refresh_workspace_tools()
         return self
 
     def enable_default_skills(self, cwd: Path | None = None) -> "HarnessAgent":
@@ -284,6 +384,10 @@ class HarnessAgent:
             if memory_summary:
                 await events.put(AgentNotice(memory_summary))
 
+            workspace_summary = self._workspace_config.status_summary() if self._workspace_config is not None else None
+            if workspace_summary:
+                await events.put(AgentNotice(workspace_summary))
+
             if mcp_summary:
                 await events.put(AgentNotice(mcp_summary))
 
@@ -382,10 +486,16 @@ class HarnessAgent:
         return compact_message_history(messages, self._context_settings)
 
     def _effective_prompt(self, prompt: str) -> str:
+        effective = prompt
         memory_section = self._memory_registry.prompt_section()
-        if not memory_section:
-            return prompt
-        return _append_prompt_section(prompt, memory_section)
+        if memory_section:
+            effective = _append_prompt_section(effective, memory_section)
+        if self._workspace_config is not None:
+            effective = _append_prompt_section(
+                effective,
+                render_workspace_prompt_section(self._workspace_config),
+            )
+        return effective
 
     def _default_memory_update_provider(self) -> Provider | None:
         provider = self.provider
@@ -408,6 +518,28 @@ class HarnessAgent:
 
     async def _emit_background_notice(self, message: str) -> None:
         await self._background_notice_queue.put(AgentNotice(message))
+
+    def _require_or_default_workspace(self) -> WorkspaceConfig:
+        if self._workspace_config is not None:
+            return self._workspace_config
+        return WorkspaceConfig(root=Path.cwd())
+
+    def _refresh_workspace_tools(self) -> None:
+        if not self._core_tools_enabled:
+            return
+        self._install_core_tools()
+
+    def _install_core_tools(self) -> None:
+        if self._workspace_config is None:
+            self.tool(ReadTool())
+            self.tool(WriteTool())
+            self.tool(EditTool())
+            self.tool(BashTool())
+            return
+        self.tool(WorkspaceReadTool(self._workspace_config))
+        self.tool(WorkspaceWriteTool(self._workspace_config))
+        self.tool(WorkspaceEditTool(self._workspace_config))
+        self.tool(WorkspaceBashTool(self._workspace_config))
 
 
 def render_harness_prompt_section() -> str:

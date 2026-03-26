@@ -177,6 +177,11 @@ async def main() -> None:
         .system_prompt(system_prompt)
         .plan_prompt(plan_prompt)
         .enable_core_tools(ChannelInputHandler(input_queue))
+        .enable_workspace(
+            cwd,
+            scratch=cwd / ".agent-work",
+            outputs=cwd / "outputs",
+        )
         .enable_default_memory(cwd=cwd)
         .enable_user_memory_file(Path.home() / ".agents" / "AGENTS.md")
         .enable_memory_updates(debounce_seconds=2.0, target_scope="user")

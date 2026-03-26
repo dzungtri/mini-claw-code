@@ -130,10 +130,10 @@ The cleanest first model is:
 - one repository root
 - one optional scratch directory
 - one optional outputs directory
+- one optional uploads directory for later runtime surfaces
 
 Later, the same model can grow to include:
 
-- an uploads directory
 - a presented-artifacts directory
 - per-thread working areas
 
@@ -143,9 +143,11 @@ For example:
 agent = (
     HarnessAgent(provider)
     .enable_core_tools(handler)
-    .workspace(Path.cwd())
-    .scratch_dir(Path.cwd() / ".agent-work")
-    .outputs_dir(Path.cwd() / "outputs")
+    .enable_workspace(
+        Path.cwd(),
+        scratch=Path.cwd() / ".agent-work",
+        outputs=Path.cwd() / "outputs",
+    )
 )
 ```
 
@@ -155,6 +157,35 @@ It does not need container orchestration or a remote execution system to be
 useful.
 
 It just gives the harness a known operating shape.
+
+## A generic path model
+
+The current Python implementation should be slightly more structured than raw
+host paths.
+
+The clean first step is a small alias system:
+
+- `workspace://` for files under the workspace root
+- `scratch://` for intermediate work
+- `outputs://` for final deliverables
+- `uploads://` for future input files
+
+Examples:
+
+```text
+workspace://src/app.py
+scratch://notes/plan.md
+outputs://report.md
+```
+
+If the runtime also accepts plain relative paths, they should resolve against
+the workspace root.
+
+This is a useful middle ground:
+
+- simpler than DeerFlow's full virtual-host path mapping
+- more explicit than raw relative and absolute paths
+- generic enough for future chapters
 
 ## Why scratch and outputs should be different
 
@@ -225,6 +256,15 @@ The harness should be able to say clearly:
 If the runtime claims it produced a deliverable, the output location should be
 predictable.
 
+The current implementation should also enforce:
+
+### Rule 5: alias paths must stay inside their own base
+
+For example:
+
+- `outputs://report.md` is valid
+- `outputs://../secret.txt` must be rejected
+
 These rules are not glamorous, but they are exactly the kind of runtime shape a
 harness needs.
 
@@ -246,6 +286,16 @@ problem immediately.
 But it should still define the policy shape now.
 
 That is better than leaving shell behavior implicit.
+
+The current implementation-backed policy should be:
+
+- start every shell command with `cwd` set to the workspace root
+- expose workspace directories as environment variables
+- block a short list of obviously destructive commands by default
+
+That is not a real container sandbox.
+
+But it is a genuine first sandbox boundary.
 
 ## The harness should own these rules
 
@@ -299,6 +349,8 @@ class WorkspaceConfig:
     root: Path
     scratch: Path | None = None
     outputs: Path | None = None
+    uploads: Path | None = None
+    allow_destructive_bash: bool = False
 ```
 
 And helpers such as:
@@ -313,6 +365,24 @@ This stays consistent with the rest of the codebase:
 - explicit dataclasses
 - explicit helper functions
 - no hidden runtime container
+
+That is exactly the right shape for this project.
+
+The current runtime module should be:
+
+```text
+mini_claw_code_py/
+├── harness.py
+├── workspace.py
+└── ...
+```
+
+And `workspace.py` should own:
+
+- workspace config
+- path resolution
+- prompt rendering
+- workspace-aware wrappers for `read`, `write`, `edit`, and `bash`
 
 ## What sandbox means in this book
 
@@ -414,22 +484,29 @@ The harness should own that policy centrally.
 The lightweight Python project should first establish the model clearly before
 chasing heavier infrastructure.
 
+### 5. Use only raw absolute paths everywhere
+
+That makes the runtime harder to reason about and harder to extend later.
+
 ## A realistic first milestone
 
-The first concrete implementation milestone after this chapter should be:
+The first concrete implementation milestone for this chapter is now:
 
 1. add workspace configuration to `HarnessAgent`
 2. define root, scratch, and outputs paths
-3. validate file paths against the workspace root
-4. expose a predictable place for final outputs
+3. support `workspace://`, `scratch://`, and `outputs://` path aliases
+4. validate file paths against the allowed workspace roots
+5. run shell commands from the workspace root
+6. block a short list of obviously destructive bash commands by default
+7. emit a workspace notice when the harness starts a run
 
 That is enough to make the runtime feel much more intentional.
 
 Later versions can extend this with:
 
 - richer shell policies
-- uploads
-- virtual path mapping
+- uploads as a real runtime surface
+- presented artifacts
 - external sandboxes
 - approval checkpoints
 
@@ -442,6 +519,7 @@ The key ideas are:
 - workspace and sandbox are related but different
 - scratch work and final outputs should be separated
 - path boundaries should be explicit
+- generic path aliases make workspace rules easier to teach and extend
 - shell execution needs the same boundary mindset
 - the harness runtime should own these rules centrally
 

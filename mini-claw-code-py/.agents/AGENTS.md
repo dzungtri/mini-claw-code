@@ -3,3 +3,4 @@
 - Prefer small, targeted edits over broad rewrites.
 - Read the relevant file before editing when fresh context matters.
 - Verify behavior after changes when practical.
+- Favorite color: blue
