@@ -5,7 +5,7 @@ from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Mapping
 
-from .agent import AgentDone, AgentError, AgentEvent, AgentTextDelta, AgentToolCall, tool_summary
+from .agent import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, tool_summary
 from .mcp import MCPRegistry, MCPToolAdapter
 from .prompts import DEFAULT_PLAN_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, render_system_prompt
 from .skills import SkillRegistry
@@ -110,8 +110,10 @@ class PlanAgent:
     ) -> str:
         async with AsyncExitStack() as stack:
             runtime_tools = self.tools.copy()
-            if self._mcp_registry is not None and self._mcp_registry.all():
+            mcp_summary: str | None = None
+            if allowed is None and self._mcp_registry is not None and self._mcp_registry.all():
                 adapter = await stack.enter_async_context(MCPToolAdapter(self._mcp_registry))
+                mcp_summary = adapter.status_summary()
                 for tool in adapter.tools():
                     runtime_tools.push(tool)
 
@@ -119,6 +121,9 @@ class PlanAgent:
             defs = [definition for definition in all_defs if allowed is None or definition.name in allowed]
             if allowed is not None:
                 defs.append(self.exit_plan_def)
+
+            if mcp_summary:
+                await events.put(AgentNotice(mcp_summary))
 
             while True:
                 stream_queue: asyncio.Queue[object] = asyncio.Queue()

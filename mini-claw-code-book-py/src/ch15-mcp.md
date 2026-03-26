@@ -124,6 +124,34 @@ flowchart TD
 That is enough to make MCP configuration explicit, executable, and easy to
 test.
 
+## How MCP works
+
+At a high level, MCP separates three concerns:
+
+1. the host runtime
+2. the MCP client
+3. the MCP server
+
+In this project:
+
+- `mini-claw-code-py` is the host runtime
+- `FastMCP` is the client layer
+- the external integration is the server
+
+The host does not call the external system directly.
+
+Instead, the flow is:
+
+1. connect to an MCP server
+2. discover its capabilities
+3. list tools
+4. call a selected tool
+5. turn the result back into normal agent output
+
+That is why MCP is such a strong fit for agent systems.
+
+It standardizes how outside capability enters the runtime.
+
 ## What `.mcp.json` looks like
 
 Claude Code popularized a clean JSON format for MCP server configuration:
@@ -205,6 +233,11 @@ Example:
 The reference implementation also accepts `sse` so the config layer can stay
 compatible with older MCP setups, even though newer guidance usually prefers
 HTTP.
+
+The important design lesson is:
+
+- transport belongs in config
+- not in hard-coded runtime branches spread across the UI
 
 ## `MCPServer`
 
@@ -399,6 +432,73 @@ You do **not** need a custom transport switch statement for:
 
 FastMCP handles that based on the config.
 
+That matters for stability.
+
+Without FastMCP, this chapter would have to absorb too much complexity at once:
+
+- process management
+- HTTP session handling
+- protocol framing
+- capability negotiation
+- tool invocation details
+
+FastMCP keeps those details in the right layer.
+
+## Connection lifecycle
+
+The FastMCP client docs emphasize that a connection has a lifecycle, not just a
+single function call.
+
+For a coding agent, the healthy lifecycle is:
+
+1. discover config
+2. open one client session
+3. list tools once
+4. keep the session open while the run is active
+5. call tools through that live session
+6. close the session cleanly when the run ends
+
+That is exactly why the runtime uses `async with MCPToolAdapter(...)`.
+
+It avoids a weaker design such as:
+
+- reconnecting for every tool call
+- relisting tools repeatedly
+- letting UI code own connection state
+
+The connection lifecycle should belong to the runtime layer.
+
+## Operations
+
+FastMCP exposes the standard MCP client operations.
+
+The most important ones are:
+
+- `list_tools()`
+- `call_tool(...)`
+- `list_resources()`
+- `read_resource(...)`
+- `list_prompts()`
+- `get_prompt(...)`
+- `ping()`
+
+This chapter intentionally implements the tool path first.
+
+That means the current runtime actively uses:
+
+- `list_tools()` to discover remote capabilities
+- `call_tool(...)` to execute them
+
+The other operations still matter because they show where the harness can grow
+next:
+
+- resources can provide external context
+- prompts can provide server-authored workflows
+- ping can support health checks
+
+So the chapter should teach the whole MCP shape even though the current runtime
+starts with tools.
+
 ## Turning MCP tools into local agent tools
 
 The rest of the runtime still expects local `ToolDefinition` objects and local
@@ -420,6 +520,12 @@ That means the rest of the agent loop does not need to know whether a tool is:
 That continuity is important.
 
 MCP becomes another tool source, not a second execution system.
+
+That is one of the best architectural choices in the whole chapter.
+
+Only tool loading changes.
+
+The core agent loop stays the same.
 
 ## `MCPToolAdapter`
 
@@ -444,6 +550,14 @@ For this tutorial implementation, that means:
 - text content blocks are joined into a readable result
 
 That is enough for a working coding agent.
+
+The adapter also gives the runtime a clean place to summarize connection state.
+
+That matters because mature agent products do not treat MCP as invisible
+background machinery.
+
+If an agent is relying on external capability, the user should be able to see
+that capability is connected.
 
 ## Integrating MCP into `PlanAgent`
 
@@ -486,6 +600,40 @@ That means Chapter 15 now produces a real outcome:
 - and the model chooses one of its tools
 - the agent can actually call it
 
+One subtle but important detail is that this runtime keeps planning mode more
+conservative than execution mode.
+
+That preserves the spirit of Chapter 12:
+
+- planning should stay focused on inspection and planning
+- execution is where external action belongs
+
+## MCP visibility in the TUI
+
+Once the runtime can connect MCP servers, that should be visible.
+
+So the TUI now surfaces a connection notice when MCP tools become live for a
+run.
+
+A message like this is enough:
+
+```text
+MCP connected: filesystem-demo, langchain-docs (14 tools available)
+```
+
+This is a small UX feature, but it matters a lot.
+
+It tells the operator:
+
+- which MCP servers actually connected
+- that the tool list is live for this run
+- that the agent is not relying only on built-in local tools
+
+This is also an early example of a larger harness principle:
+
+- capability should be observable
+- not only configured
+
 ## Example file for the tutorial project
 
 The reference project includes a sample `.mcp.json`.
@@ -494,7 +642,6 @@ That sample should demonstrate:
 
 - one `stdio` server
 - one `http` server
-- at least one environment-variable placeholder with a default
 
 That gives the tests a real config file to parse and gives readers a concrete
 template to copy.
@@ -523,6 +670,8 @@ This chapter intentionally stops at:
 - prompt composition
 - real MCP tool exposure through FastMCP
 
+That is already enough to make MCP genuinely useful in the tutorial runtime.
+
 That is still useful, still testable, and still a real step toward a harness
 agent.
 
@@ -537,6 +686,7 @@ The reference tests should cover:
 5. project config overriding user config
 6. rendering a prompt section with server name, transport, source, and summary
 7. actually calling a FastMCP-backed tool from `PlanAgent`
+8. surfacing a connection notice when MCP tools are live
 
 That gives you a clean chapter boundary:
 
@@ -555,6 +705,7 @@ But after this chapter, the Python port now has a real end-to-end path:
 - render MCP awareness into the prompt
 - connect with FastMCP
 - expose remote tools as normal agent tools
+- surface connection state in the TUI
 
 That is what this chapter adds:
 

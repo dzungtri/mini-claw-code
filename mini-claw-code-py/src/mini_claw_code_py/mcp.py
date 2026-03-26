@@ -219,6 +219,14 @@ class MCPToolAdapter:
     def tools(self) -> list[MCPToolProxy]:
         return list(self._tools)
 
+    def status_summary(self) -> str:
+        names = ", ".join(server.name for server in self.registry.all())
+        if not names:
+            return ""
+        count = len(self._tools)
+        noun = "tool" if count == 1 else "tools"
+        return f"MCP connected: {names} ({count} {noun} available)"
+
 
 def _nearest_project_config(start: Path) -> Path | None:
     if start.is_file():

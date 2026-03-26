@@ -1,4 +1,4 @@
-from .agent import AgentDone, AgentError, AgentEvent, AgentTextDelta, AgentToolCall, SimpleAgent, single_turn
+from .agent import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, SimpleAgent, single_turn
 from .mcp import MCPRegistry, MCPServer, default_mcp_config_paths, parse_mcp_config
 from .mock import MockProvider
 from .planning import PlanAgent
@@ -48,6 +48,7 @@ __all__ = [
     "AgentDone",
     "AgentError",
     "AgentEvent",
+    "AgentNotice",
     "AgentTextDelta",
     "AgentToolCall",
     "AskTool",

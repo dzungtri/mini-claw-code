@@ -31,7 +31,12 @@ class AgentError:
     error: str
 
 
-AgentEvent = AgentTextDelta | AgentToolCall | AgentDone | AgentError
+@dataclass(slots=True)
+class AgentNotice:
+    message: str
+
+
+AgentEvent = AgentTextDelta | AgentToolCall | AgentDone | AgentError | AgentNotice
 
 
 def tool_summary(call: ToolCall) -> str:
@@ -126,8 +131,11 @@ class SimpleAgent:
         events: "asyncio.Queue[AgentEvent]",
     ) -> list[Message]:
         async with AsyncExitStack() as stack:
-            runtime_tools = await self._runtime_tools(stack)
+            runtime_tools, mcp_summary = await self._runtime_tools(stack)
             defs = runtime_tools.definitions()
+
+            if mcp_summary:
+                await events.put(AgentNotice(mcp_summary))
 
             while True:
                 try:
@@ -157,7 +165,7 @@ class SimpleAgent:
 
     async def chat(self, messages: list[Message]) -> str:
         async with AsyncExitStack() as stack:
-            runtime_tools = await self._runtime_tools(stack)
+            runtime_tools, _ = await self._runtime_tools(stack)
             defs = runtime_tools.definitions()
 
             while True:
@@ -178,13 +186,15 @@ class SimpleAgent:
         messages = [Message.user(prompt)]
         return await self.chat(messages)
 
-    async def _runtime_tools(self, stack: AsyncExitStack) -> ToolSet:
+    async def _runtime_tools(self, stack: AsyncExitStack) -> tuple[ToolSet, str | None]:
         runtime_tools = self.tools.copy()
+        mcp_summary: str | None = None
         if self._mcp_registry is not None and self._mcp_registry.all():
             adapter = await stack.enter_async_context(MCPToolAdapter(self._mcp_registry))
+            mcp_summary = adapter.status_summary()
             for tool in adapter.tools():
                 runtime_tools.push(tool)
-        return runtime_tools
+        return runtime_tools, mcp_summary
 
     async def _execute_tools_with_set(
         self,

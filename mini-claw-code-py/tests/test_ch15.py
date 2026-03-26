@@ -7,6 +7,7 @@ import sys
 import pytest
 
 from mini_claw_code_py import (
+    AgentNotice,
     Message,
     MCPRegistry,
     MockStreamProvider,
@@ -30,7 +31,10 @@ def test_ch15_parse_sample_mcp_config() -> None:
 
     servers = parse_mcp_config(config_path, env={})
 
-    assert [server.name for server in servers] == ["filesystem-demo", "langchain-docs"]
+    assert [server.name for server in servers] == [
+        "filesystem-demo",
+        "langchain-docs",
+    ]
     docs = next(server for server in servers if server.name == "langchain-docs")
     fs = next(server for server in servers if server.name == "filesystem-demo")
 
@@ -240,3 +244,11 @@ if __name__ == "__main__":
         message.kind == "tool_result" and message.content == "Hello, Ada!"
         for message in messages
     )
+    seen_notice = False
+    while not events.empty():
+        event = await events.get()
+        if isinstance(event, AgentNotice):
+            seen_notice = True
+            assert "MCP connected: demo" in event.message
+            assert "tool available" in event.message
+    assert seen_notice

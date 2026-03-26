@@ -6,6 +6,7 @@ from pathlib import Path
 from mini_claw_code_py import (
     AgentDone,
     AgentError,
+    AgentNotice,
     AgentTextDelta,
     AgentToolCall,
     AskTool,
@@ -139,6 +140,11 @@ async def ui_event_loop(
             streaming_text = False
             print(CLEAR_LINE, end="", flush=True)
             print(render_tool_line(tool_count, event.summary), end="", flush=True)
+            print(spinner_line(frame, spinner_label), end="", flush=True)
+        elif isinstance(event, AgentNotice):
+            streaming_text = False
+            print(CLEAR_LINE, end="", flush=True)
+            print(f"  {DIM}{event.message}{RESET}")
             print(spinner_line(frame, spinner_label), end="", flush=True)
         elif isinstance(event, AgentDone):
             print(CLEAR_LINE, end="", flush=True)
