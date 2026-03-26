@@ -307,6 +307,28 @@ pieces:
 That means the harness is a **composition layer** over the current project, not
 a hard reset.
 
+But there is one implementation detail worth making explicit now:
+
+- the earlier runtime files should stay simple for learning
+- the harness should get its own runtime file
+
+So from Chapter 17 onward, the project should treat these as two tracks:
+
+- the original learning track:
+  - `agent.py`
+  - `streaming.py`
+  - `planning.py`
+  - `examples/chat.py`
+  - `examples/tui.py`
+- the new harness track:
+  - `harness.py`
+  - `examples/cli.py`
+
+This is a good tradeoff.
+
+It keeps the early chapters readable while giving the harness room to grow
+without smearing complexity across the old teaching files.
+
 ## What belongs in this book
 
 Now that the harness is defined architecturally, the next question is:
@@ -321,6 +343,27 @@ The right answer is:
 ### Core harness features we should teach and implement
 
 These are the features that belong inside the `HarnessAgent` arc of this book.
+
+Just as important, the harness arc should now build toward **one evolving app**
+instead of a new app for every later chapter.
+
+So from Chapter 18 onward, the tutorial should keep extending one CLI:
+
+- `examples/cli.py`
+
+That CLI can eventually absorb:
+
+- richer runtime notices
+- memory and context features
+- workspace behavior
+- subagent orchestration
+- later client/channel adapters
+
+This mirrors the way real systems evolve:
+
+- one runtime
+- one main app surface
+- more bundled capability over time
 
 ### 1. Bundled core tools
 

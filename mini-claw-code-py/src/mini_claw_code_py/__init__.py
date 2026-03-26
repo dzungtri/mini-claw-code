@@ -1,4 +1,5 @@
 from .agent import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, SimpleAgent, single_turn
+from .harness import HARNESS_CORE_PROMPT_SECTION, HarnessAgent, render_harness_prompt_section
 from .mcp import MCPRegistry, MCPServer, default_mcp_config_paths, parse_mcp_config
 from .mock import MockProvider
 from .planning import PlanAgent
@@ -60,6 +61,8 @@ __all__ = [
     "DEFAULT_SUBAGENT_SYSTEM_PROMPT",
     "DEFAULT_SYSTEM_PROMPT_TEMPLATE",
     "EditTool",
+    "HARNESS_CORE_PROMPT_SECTION",
+    "HarnessAgent",
     "InputHandler",
     "Message",
     "MCPRegistry",
@@ -99,5 +102,6 @@ __all__ = [
     "parse_skill_file",
     "render_subagent_prompt_section",
     "render_system_prompt",
+    "render_harness_prompt_section",
     "single_turn",
 ]

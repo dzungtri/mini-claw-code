@@ -1,7 +1,7 @@
 UV ?= uv
 PYTHONPATH := src
 
-.PHONY: help install test chat tui
+.PHONY: help install test chat tui cli
 
 help:
 	@printf "Targets:\n"
@@ -9,6 +9,7 @@ help:
 	@printf "  make test     - run the Python test suite\n"
 	@printf "  make chat     - start the chat CLI\n"
 	@printf "  make tui      - start the TUI\n"
+	@printf "  make cli      - start the harness CLI\n"
 
 install:
 	$(UV) pip install -e ".[dev]"
@@ -21,3 +22,6 @@ chat:
 
 tui:
 	PYTHONPATH=$(PYTHONPATH) $(UV) run python examples/tui.py
+
+cli:
+	PYTHONPATH=$(PYTHONPATH) $(UV) run python examples/cli.py

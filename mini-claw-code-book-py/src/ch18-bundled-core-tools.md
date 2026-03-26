@@ -114,47 +114,46 @@ So the question is not:
 
 It is:
 
-> "Which existing runtime should become the base of the harness?"
+> "How should the harness reuse the existing runtime ideas without making the
+> earlier files harder to learn?"
 
-## Why `PlanAgent` is the right base
+## Why the harness should get its own runtime file
 
-The cleanest answer is `PlanAgent`.
+The harness should absolutely reuse the ideas already established in
+`PlanAgent`.
 
-Why not `SimpleAgent`?
+But that does not mean the best implementation is to keep growing
+`planning.py`.
 
-Because the harness is already heading toward:
+That file is still serving an important tutorial role:
 
-- controlled plan/execute flows
-- richer prompt assembly
-- evented output
-- optional user clarification
-- eventually, approvals and verification checkpoints
+- it teaches planning mode clearly
+- it stays readable
+- it shows the plan/execute idea without too much runtime baggage
 
-`PlanAgent` is already closer to that richer runtime shape than `SimpleAgent`.
+Once the harness starts accumulating:
 
-It already has:
+- bundled tools
+- bundled prompts
+- memory
+- summarization
+- workspace rules
+- control-plane behavior
 
-- a streaming provider
-- a tool registry
-- builder-style configuration
-- prompt injection
-- mode-aware execution
+the code will grow quickly.
 
-So the simplest inheritance path is:
+So the cleaner design for this project is:
 
-```python
-class HarnessAgent(PlanAgent):
-    ...
-```
+- keep `planning.py` as the simple planning chapter runtime
+- create `harness.py` as the new bundled runtime
 
-This is a good example of **small, local inheritance**:
+That means `HarnessAgent` should **reuse the shape** of `PlanAgent`, but live in
+its own file.
 
-- it keeps the existing runtime model
-- it avoids duplicating the plan/execute machinery
-- it gives the harness a natural place to add bundled defaults
+This keeps two good properties at once:
 
-The harness is still fundamentally the same project. It just ships with a
-better default operating profile.
+- earlier chapters stay easy to read
+- later chapters get a runtime that can grow without becoming messy
 
 ## The first harness profile
 
@@ -252,12 +251,22 @@ was replaced by a new framework.
 
 ## The class shape
 
-The first version can stay very small:
+The first version can stay very small.
+
+And the cleanest home for it is:
+
+```text
+src/mini_claw_code_py/harness.py
+```
+
+The first implementation can borrow the execution shape you already trust from
+`PlanAgent`, but keep its own class and its own runtime file:
 
 ```python
-class HarnessAgent(PlanAgent):
+class HarnessAgent:
     def __init__(self, provider: StreamProvider) -> None:
-        super().__init__(provider)
+        self.provider = provider
+        self.tools = ToolSet()
         self._core_tools_enabled = False
 
     def enable_core_tools(
@@ -349,6 +358,29 @@ That distinction matters because it stops the first harness API from becoming a
 grab bag.
 
 The harness is bundled, but it should still be organized.
+
+## The new app surface
+
+Bundling core tools should also change how the app is started.
+
+From this chapter onward, the tutorial should stop extending the old
+`examples/chat.py` and `examples/tui.py` as the main learning path.
+
+Those should remain as earlier simple examples.
+
+The harness should instead get one evolving app surface:
+
+```text
+examples/cli.py
+```
+
+That file can start as a small copy of the current TUI shape, but from now on
+it becomes the main app the later chapters continue extending.
+
+That gives the project one stable growth path:
+
+- old example apps stay simple
+- new harness CLI keeps evolving
 
 ## The prompt implication
 
