@@ -11,6 +11,7 @@ from .context import (
     compact_message_history,
     render_context_durability_prompt_section,
 )
+from .memory import MemoryRegistry
 from .mcp import MCPRegistry, MCPToolAdapter
 from .prompts import DEFAULT_PLAN_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, render_system_prompt
 from .skills import SkillRegistry
@@ -42,6 +43,7 @@ class HarnessAgent:
         self.provider = provider
         self.tools = ToolSet()
         self._read_only = {"bash", "read", "ask_user"}
+        self._memory_registry = MemoryRegistry()
         self._mcp_registry: MCPRegistry | None = None
         self._core_tools_enabled = False
         self._ask_tool_enabled = False
@@ -144,6 +146,37 @@ class HarnessAgent:
         )
         return self
 
+    def enable_memory_file(
+        self,
+        path: str | Path,
+    ) -> "HarnessAgent":
+        self._memory_registry.add("project", path)
+        return self
+
+    def enable_project_memory_file(
+        self,
+        path: str | Path,
+    ) -> "HarnessAgent":
+        self._memory_registry.add("project", path)
+        return self
+
+    def enable_user_memory_file(
+        self,
+        path: str | Path,
+    ) -> "HarnessAgent":
+        self._memory_registry.add("user", path)
+        return self
+
+    def enable_default_memory(
+        self,
+        cwd: Path | None = None,
+        home: Path | None = None,
+    ) -> "HarnessAgent":
+        self._memory_registry.extend(
+            MemoryRegistry.discover_default(cwd=cwd, home=home).all()
+        )
+        return self
+
     def enable_context_durability(
         self,
         *,
@@ -177,7 +210,7 @@ class HarnessAgent:
         messages: list[Message],
         events: "asyncio.Queue[AgentEvent]",
     ) -> str:
-        self._set_system_prompt(messages, self.plan_system_prompt)
+        self._set_system_prompt(messages, self._effective_prompt(self.plan_system_prompt))
         return await self._run_loop(messages, self._read_only, events)
 
     async def execute(
@@ -185,7 +218,7 @@ class HarnessAgent:
         messages: list[Message],
         events: "asyncio.Queue[AgentEvent]",
     ) -> str:
-        self._set_system_prompt(messages, self.execution_system_prompt)
+        self._set_system_prompt(messages, self._effective_prompt(self.execution_system_prompt))
         return await self._run_loop(messages, None, events)
 
     async def _run_loop(
@@ -207,6 +240,10 @@ class HarnessAgent:
             defs = [definition for definition in all_defs if allowed is None or definition.name in allowed]
             if allowed is not None:
                 defs.append(self.exit_plan_def)
+
+            memory_summary = self._memory_registry.status_summary()
+            if memory_summary:
+                await events.put(AgentNotice(memory_summary))
 
             if mcp_summary:
                 await events.put(AgentNotice(mcp_summary))
@@ -296,6 +333,12 @@ class HarnessAgent:
         if not self._context_durability_enabled:
             return None
         return compact_message_history(messages, self._context_settings)
+
+    def _effective_prompt(self, prompt: str) -> str:
+        memory_section = self._memory_registry.prompt_section()
+        if not memory_section:
+            return prompt
+        return _append_prompt_section(prompt, memory_section)
 
 
 def render_harness_prompt_section() -> str:

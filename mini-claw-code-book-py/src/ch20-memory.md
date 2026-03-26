@@ -35,7 +35,7 @@ This chapter defines the next durable harness capability:
 1. a clear difference between memory and current-task context
 2. a split between project memory and user memory
 3. rules for what should and should not be remembered
-4. a simple prompt-loading design for memory files
+4. a runtime-loaded prompt design for memory files
 5. a clean path for later memory updates in the Python runtime
 
 As with the previous harness chapters, this chapter describes the design shape
@@ -261,23 +261,34 @@ book:
 Possible locations:
 
 ```text
-.agents/
-├── AGENTS.md          # project memory
-└── user/
-    └── AGENTS.md      # user memory
+/repo/.agents/AGENTS.md   # project memory
+~/.agents/AGENTS.md       # user memory
 ```
 
-This is only one possible layout, but it fits the current codebase nicely.
+This is the default layout we will implement in `mini-claw-code-py`.
+
+It fits the current codebase nicely:
+
+- project-scoped durable guidance stays in the repository
+- user-scoped durable guidance stays in the user's home directory
+- the layout matches the existing `.agents/` convention used for skills
 
 ## How memory should enter the runtime
 
-The first version should avoid magic.
+The first version should avoid magic, but it should still feel like a real
+harness feature.
 
 The harness should simply:
 
-1. read configured memory files
-2. combine them in a deterministic order
-3. inject them into the system prompt
+1. register explicit memory sources or discover the default ones
+2. read those files at runtime
+3. combine them in a deterministic order
+4. inject them into the system prompt
+
+That runtime-loading detail matters.
+
+If `AGENTS.md` changes on disk, the next agent run should see the latest memory
+without requiring a new `HarnessAgent` object.
 
 That is enough to create a useful memory layer.
 
@@ -290,8 +301,18 @@ For example:
 agent = (
     HarnessAgent(provider)
     .enable_core_tools(handler)
-    .enable_memory_file(".agents/AGENTS.md")
-    .enable_user_memory_file(".agents/user/AGENTS.md")
+    .enable_default_memory(cwd=Path.cwd())
+)
+```
+
+Or, when you want to be explicit:
+
+```python
+agent = (
+    HarnessAgent(provider)
+    .enable_core_tools(handler)
+    .enable_project_memory_file(".agents/AGENTS.md")
+    .enable_user_memory_file(Path.home() / ".agents" / "AGENTS.md")
 )
 ```
 
@@ -300,6 +321,7 @@ That keeps the style consistent with earlier chapters:
 - small builder methods
 - explicit file paths
 - plain string composition
+- no hidden database or vector store
 
 ## Memory prompt section
 
@@ -310,13 +332,15 @@ A simple shape is:
 
 ```text
 <agent_memory>
-.agents/AGENTS.md
-- Use `uv` commands for Python tasks.
+<memory scope="project" path="/repo/.agents/AGENTS.md">
+- Use `uv run pytest` for Python tests.
 - Keep patches small and focused.
+</memory>
 
-.agents/user/AGENTS.md
+<memory scope="user" path="/home/dzung/.agents/AGENTS.md">
 - Prefer concise explanations.
 - Run tests before finalizing when practical.
+</memory>
 </agent_memory>
 ```
 
@@ -346,6 +370,15 @@ preferred way of working within that environment.
 That is a natural reading order for the model.
 
 It is also easy to test.
+
+It is also the order we will implement in the Python runtime:
+
+```python
+sources = [
+    project_agents_md,
+    user_agents_md,
+]
+```
 
 If the runtime later needs deeper precedence rules, those can be added then.
 
@@ -387,19 +420,60 @@ mini_claw_code_py/
 With lightweight helpers such as:
 
 ```python
-def load_memory_files(paths: Sequence[Path]) -> list[tuple[Path, str]]:
+def default_memory_sources(...) -> list[MemorySource]:
     ...
 
-def render_memory_section(blocks: list[tuple[Path, str]]) -> str:
+def load_memory_sources(sources: Sequence[MemorySource]) -> list[MemoryDocument]:
+    ...
+
+def render_memory_prompt_section(blocks: list[MemoryDocument]) -> str:
     ...
 ```
 
 That fits the codebase well:
 
 - plain functions
-- plain dataclasses if needed
+- plain dataclasses
 - explicit I/O
 - no hidden state manager
+
+That shape also gives the harness a natural place to add later features:
+
+- memory editing helpers
+- memory validation
+- memory update policies
+- memory safety checks
+
+## Mental model
+
+```mermaid
+flowchart TD
+    Project["/repo/.agents/AGENTS.md"] --> Loader["MemoryRegistry"]
+    User["~/.agents/AGENTS.md"] --> Loader
+    Loader --> Prompt["<agent_memory> section"]
+    Prompt --> Agent["HarnessAgent run"]
+```
+
+This is deliberately simple.
+
+The runtime is not trying to infer memory from every conversation yet.
+
+It is only loading explicit durable memory files and presenting them clearly to
+the model.
+
+## Runtime-loaded memory
+
+The implementation should load memory at **run time**, not only when the agent
+object is created.
+
+That gives the harness two useful properties:
+
+- if a memory file changes on disk, the next run sees the update
+- tests can prove that the runtime uses fresh memory rather than stale cached
+  text
+
+This is a better fit for a local coding agent than a one-time prompt assembly
+step.
 
 ## How memory should interact with skills
 
@@ -504,16 +578,17 @@ A harness should be strict here.
 
 The first concrete implementation milestone after this chapter should be:
 
-1. add one or more memory file paths to `HarnessAgent`
-2. load those files at runtime
-3. render a memory section into the system prompt
-4. preserve ordering and visible source paths
+1. add project/user memory sources to `HarnessAgent`
+2. support default discovery for project and user `AGENTS.md`
+3. load those files at runtime
+4. render a memory section into the system prompt
+5. preserve ordering and visible source paths
+6. emit a small runtime notice when memory was loaded
 
 That is enough to establish a real harness memory layer.
 
 Later versions can add:
 
-- user/project discovery rules
 - memory editing helpers
 - memory update policies
 - safety checks for stored content
@@ -528,8 +603,10 @@ The key ideas are:
 - project memory and user memory have different scopes
 - only durable, reusable, safe guidance should be remembered
 - Markdown memory files fit this project well
-- the first version should load memory into the prompt before trying to update
-  it automatically
+- the first version should load memory into the prompt at runtime before trying
+  to update it automatically
+- default discovery can stay simple: project `.agents/AGENTS.md`, then user
+  `~/.agents/AGENTS.md`
 
 This gives the harness a durable sense of how to work, not just what it is
 working on right now.

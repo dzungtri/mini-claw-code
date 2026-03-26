@@ -10,6 +10,14 @@ from .context import (
 )
 from .agent import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, SimpleAgent, single_turn
 from .harness import HARNESS_CORE_PROMPT_SECTION, HarnessAgent, render_harness_prompt_section
+from .memory import (
+    MemoryDocument,
+    MemoryRegistry,
+    MemorySource,
+    default_memory_sources,
+    load_memory_sources,
+    render_memory_prompt_section,
+)
 from .mcp import MCPRegistry, MCPServer, default_mcp_config_paths, parse_mcp_config
 from .mock import MockProvider
 from .planning import PlanAgent
@@ -79,6 +87,9 @@ __all__ = [
     "HarnessAgent",
     "InputHandler",
     "Message",
+    "MemoryDocument",
+    "MemoryRegistry",
+    "MemorySource",
     "MCPRegistry",
     "MCPServer",
     "MockInputHandler",
@@ -112,11 +123,14 @@ __all__ = [
     "estimate_messages_tokens",
     "compact_message_history",
     "default_mcp_config_paths",
+    "default_memory_sources",
     "default_skill_roots",
     "load_prompt_template",
+    "load_memory_sources",
     "parse_mcp_config",
     "parse_sse_line",
     "parse_skill_file",
+    "render_memory_prompt_section",
     "render_subagent_prompt_section",
     "render_system_prompt",
     "render_context_durability_prompt_section",

@@ -171,6 +171,7 @@ async def main() -> None:
         .system_prompt(system_prompt)
         .plan_prompt(plan_prompt)
         .enable_core_tools(ChannelInputHandler(input_queue))
+        .enable_default_memory(cwd=cwd)
         .enable_context_durability()
         .enable_default_mcp(cwd=cwd)
         .enable_default_skills(cwd)
