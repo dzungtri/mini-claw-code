@@ -140,6 +140,16 @@ A good subagent task usually includes:
 That is why the Python tool schema describes `task` as a full delegated brief,
 not just a label.
 
+One important clarification:
+
+the user should not need to say "use a subagent".
+
+In stronger harnesses, the parent decides that for itself.
+
+That means the parent should proactively choose delegation when it sees a
+bounded multi-step task or a large context-heavy branch that would be cleaner
+to isolate.
+
 ## Default child behavior
 
 The Python reference now gives subagents a default system prompt. It tells the
@@ -203,6 +213,8 @@ when the task is:
 - self-contained
 - likely to create lots of local context
 - independent enough that the parent only needs the summary
+- large enough that isolating one whole branch is better than keeping it in the
+  parent thread
 
 Good uses:
 
@@ -218,6 +230,14 @@ Bad uses:
 
 If the parent can do the work directly in one or two steps, a subagent usually
 just adds overhead.
+
+DeepAgents and DeerFlow both push this further than the Chapter 13 primitive:
+
+- the parent should use subagents proactively, not only on explicit request
+- subagents are useful for context isolation, not only parallelism
+- even one subagent can be the right choice for a single large branch of work
+
+That stronger orchestration model becomes the focus in Chapter 22.
 
 ## What the parent sees
 

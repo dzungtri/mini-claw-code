@@ -54,6 +54,8 @@ def test_ch22_render_harness_subagent_prompt_section_mentions_limit() -> None:
 
     assert "<subagent_orchestration>" in section
     assert "Launch at most 3 subagent call(s)" in section
+    assert "The user does not need to mention `subagent`." in section
+    assert "DECOMPOSE" in section
 
 
 def test_ch22_enable_subagents_adds_prompt_and_tool() -> None:

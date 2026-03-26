@@ -72,6 +72,16 @@ also define:
 - how child scope is narrowed
 - how results are merged back into the main thread
 
+This is one of the biggest lessons from DeepAgents and DeerFlow.
+
+The user should not need to type:
+
+> "please use a subagent"
+
+The lead agent should infer that from the task shape.
+
+That is what orchestration means.
+
 ## Delegation is a context-management tool
 
 One of the easiest ways to misunderstand subagents is to think they exist only
@@ -129,6 +139,7 @@ Delegate when the task is:
 - locally self-contained
 - likely to create a lot of local context
 - narrow enough that the child can finish independently
+- or one large branch of work that is cleaner to isolate even if there is only one child
 
 Good examples:
 
@@ -145,6 +156,19 @@ Bad examples:
 
 That rule stays very close to Chapter 13, but the harness now treats it as a
 default operating policy.
+
+That last point matters.
+
+DeerFlow and DeepAgents both teach the lead agent to use delegation
+proactively.
+
+They do not wait for the user to ask for a subagent by name.
+
+The current Python harness should follow that same idea:
+
+- if a task naturally decomposes, delegate
+- if one branch is large and context-heavy, one subagent may still be the right choice
+- if the task is tiny, do it directly
 
 ## Child scope is the first safety boundary
 
@@ -192,6 +216,15 @@ In Chapter 13, the subagent tool showed how the child runs.
 
 In the harness section, the focus shifts to how the **parent conducts the
 overall workflow**.
+
+That also means the parent prompt should speak in stronger terms than the
+Chapter 13 primitive.
+
+It should say:
+
+- you are a task orchestrator
+- you should decompose, delegate, and synthesize
+- you should choose delegation proactively when it is the better execution strategy
 
 ## Batching and concurrency
 
