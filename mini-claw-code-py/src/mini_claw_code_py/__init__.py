@@ -1,4 +1,5 @@
 from .agent import AgentDone, AgentError, AgentEvent, AgentTextDelta, AgentToolCall, SimpleAgent, single_turn
+from .mcp import MCPRegistry, MCPServer, default_mcp_config_paths, parse_mcp_config
 from .mock import MockProvider
 from .planning import PlanAgent
 from .prompts import (
@@ -60,6 +61,8 @@ __all__ = [
     "EditTool",
     "InputHandler",
     "Message",
+    "MCPRegistry",
+    "MCPServer",
     "MockInputHandler",
     "MockProvider",
     "MockStreamProvider",
@@ -87,8 +90,10 @@ __all__ = [
     "ToolSet",
     "UserInputRequest",
     "WriteTool",
+    "default_mcp_config_paths",
     "default_skill_roots",
     "load_prompt_template",
+    "parse_mcp_config",
     "parse_sse_line",
     "parse_skill_file",
     "render_subagent_prompt_section",

@@ -9,6 +9,7 @@ from mini_claw_code_py import (
     CliInputHandler,
     DEFAULT_SYSTEM_PROMPT_TEMPLATE,
     EditTool,
+    MCPRegistry,
     Message,
     OpenRouterProvider,
     ReadTool,
@@ -38,6 +39,7 @@ async def main() -> None:
     )
     agent = (
         SimpleAgent(provider)
+        .enable_default_mcp(cwd=Path.cwd())
         .tool(BashTool())
         .tool(ReadTool())
         .tool(WriteTool())
@@ -51,12 +53,13 @@ async def main() -> None:
         SYSTEM_PROMPT_FILE_ENV,
         DEFAULT_SYSTEM_PROMPT_TEMPLATE,
     )
+    mcp_section = MCPRegistry.discover_default(Path.cwd()).prompt_section()
     skills_section = SkillRegistry.discover_default(Path.cwd()).prompt_section()
     subagent_section = render_subagent_prompt_section()
     system_prompt = render_system_prompt(
         prompt_template,
         cwd=cwd,
-        extra_sections=[skills_section, subagent_section],
+        extra_sections=[mcp_section, skills_section, subagent_section],
     )
     history = [Message.system(system_prompt)]
 

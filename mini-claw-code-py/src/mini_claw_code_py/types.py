@@ -129,3 +129,7 @@ class ToolSet:
     def definitions(self) -> list[ToolDefinition]:
         return [tool.definition for tool in self._tools.values()]
 
+    def copy(self) -> "ToolSet":
+        other = ToolSet()
+        other._tools = dict(self._tools)
+        return other

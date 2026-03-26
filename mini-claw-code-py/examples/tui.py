@@ -182,6 +182,7 @@ async def main() -> None:
         PlanAgent(provider)
         .system_prompt(system_prompt)
         .plan_prompt(plan_prompt)
+        .enable_default_mcp(cwd=cwd)
         .enable_default_skills(cwd)
         .tool(BashTool())
         .tool(ReadTool())

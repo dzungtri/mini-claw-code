@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import AsyncExitStack
 from pathlib import Path
+from typing import Mapping
 
 from .agent import AgentDone, AgentError, AgentEvent, AgentTextDelta, AgentToolCall, tool_summary
+from .mcp import MCPRegistry, MCPToolAdapter
 from .prompts import DEFAULT_PLAN_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, render_system_prompt
 from .skills import SkillRegistry
 from .streaming import StreamDone, StreamProvider, TextDelta
@@ -15,6 +18,7 @@ class PlanAgent:
         self.provider = provider
         self.tools = ToolSet()
         self._read_only = {"bash", "read", "ask_user"}
+        self._mcp_registry: MCPRegistry | None = None
         self.plan_system_prompt = DEFAULT_PLAN_PROMPT_TEMPLATE
         self.execution_system_prompt = DEFAULT_SYSTEM_PROMPT_TEMPLATE
         self.exit_plan_def = ToolDefinition.new(
@@ -56,6 +60,32 @@ class PlanAgent:
         )
         return self
 
+    def enable_default_mcp(
+        self,
+        cwd: Path | None = None,
+        home: Path | None = None,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> "PlanAgent":
+        target_cwd = Path.cwd() if cwd is None else cwd
+        registry = MCPRegistry.discover_default(cwd=target_cwd, home=home, env=env)
+        self._mcp_registry = registry
+        section = registry.prompt_section()
+        if not section:
+            return self
+
+        self.execution_system_prompt = render_system_prompt(
+            self.execution_system_prompt,
+            cwd=target_cwd,
+            extra_sections=[section],
+        )
+        self.plan_system_prompt = render_system_prompt(
+            self.plan_system_prompt,
+            cwd=target_cwd,
+            extra_sections=[section],
+        )
+        return self
+
     async def plan(
         self,
         messages: list[Message],
@@ -78,76 +108,83 @@ class PlanAgent:
         allowed: set[str] | None,
         events: "asyncio.Queue[AgentEvent]",
     ) -> str:
-        all_defs = self.tools.definitions()
-        defs = [definition for definition in all_defs if allowed is None or definition.name in allowed]
-        if allowed is not None:
-            defs.append(self.exit_plan_def)
+        async with AsyncExitStack() as stack:
+            runtime_tools = self.tools.copy()
+            if self._mcp_registry is not None and self._mcp_registry.all():
+                adapter = await stack.enter_async_context(MCPToolAdapter(self._mcp_registry))
+                for tool in adapter.tools():
+                    runtime_tools.push(tool)
 
-        while True:
-            stream_queue: asyncio.Queue[object] = asyncio.Queue()
+            all_defs = runtime_tools.definitions()
+            defs = [definition for definition in all_defs if allowed is None or definition.name in allowed]
+            if allowed is not None:
+                defs.append(self.exit_plan_def)
 
-            async def forward() -> None:
-                while True:
-                    event = await stream_queue.get()
-                    if isinstance(event, TextDelta):
-                        await events.put(AgentTextDelta(event.text))
-                    if isinstance(event, StreamDone):
-                        return
+            while True:
+                stream_queue: asyncio.Queue[object] = asyncio.Queue()
 
-            forwarder = asyncio.create_task(forward())
+                async def forward() -> None:
+                    while True:
+                        event = await stream_queue.get()
+                        if isinstance(event, TextDelta):
+                            await events.put(AgentTextDelta(event.text))
+                        if isinstance(event, StreamDone):
+                            return
 
-            try:
-                turn = await self.provider.stream_chat(messages, defs, stream_queue)  # type: ignore[arg-type]
-            except Exception as exc:
-                await events.put(AgentError(str(exc)))
-                forwarder.cancel()
-                raise
+                forwarder = asyncio.create_task(forward())
 
-            await forwarder
+                try:
+                    turn = await self.provider.stream_chat(messages, defs, stream_queue)  # type: ignore[arg-type]
+                except Exception as exc:
+                    await events.put(AgentError(str(exc)))
+                    forwarder.cancel()
+                    raise
 
-            if turn.stop_reason is StopReason.STOP:
-                text = turn.text or ""
-                await events.put(AgentDone(text))
-                messages.append(Message.assistant(turn))
-                return text
+                await forwarder
 
-            results: list[tuple[str, str]] = []
-            exit_plan = False
+                if turn.stop_reason is StopReason.STOP:
+                    text = turn.text or ""
+                    await events.put(AgentDone(text))
+                    messages.append(Message.assistant(turn))
+                    return text
 
-            for call in turn.tool_calls:
-                if allowed is not None and call.name == "exit_plan":
-                    results.append((call.id, "Plan submitted for review."))
-                    exit_plan = True
-                    continue
+                results: list[tuple[str, str]] = []
+                exit_plan = False
 
-                if allowed is not None and call.name not in allowed:
-                    results.append(
-                        (
-                            call.id,
-                            f"error: tool '{call.name}' is not available in planning mode",
+                for call in turn.tool_calls:
+                    if allowed is not None and call.name == "exit_plan":
+                        results.append((call.id, "Plan submitted for review."))
+                        exit_plan = True
+                        continue
+
+                    if allowed is not None and call.name not in allowed:
+                        results.append(
+                            (
+                                call.id,
+                                f"error: tool '{call.name}' is not available in planning mode",
+                            )
                         )
-                    )
-                    continue
+                        continue
 
-                await events.put(AgentToolCall(call.name, tool_summary(call)))
-                tool = self.tools.get(call.name)
-                if tool is None:
-                    content = f"error: unknown tool `{call.name}`"
-                else:
-                    try:
-                        content = await tool.call(call.arguments)
-                    except Exception as exc:
-                        content = f"error: {exc}"
-                results.append((call.id, content))
+                    await events.put(AgentToolCall(call.name, tool_summary(call)))
+                    tool = runtime_tools.get(call.name)
+                    if tool is None:
+                        content = f"error: unknown tool `{call.name}`"
+                    else:
+                        try:
+                            content = await tool.call(call.arguments)
+                        except Exception as exc:
+                            content = f"error: {exc}"
+                    results.append((call.id, content))
 
-            plan_text = turn.text or ""
-            messages.append(Message.assistant(turn))
-            for call_id, content in results:
-                messages.append(Message.tool_result(call_id, content))
+                plan_text = turn.text or ""
+                messages.append(Message.assistant(turn))
+                for call_id, content in results:
+                    messages.append(Message.tool_result(call_id, content))
 
-            if exit_plan:
-                await events.put(AgentDone(plan_text))
-                return plan_text
+                if exit_plan:
+                    await events.put(AgentDone(plan_text))
+                    return plan_text
 
     @staticmethod
     def _set_system_prompt(messages: list[Message], prompt: str) -> None:

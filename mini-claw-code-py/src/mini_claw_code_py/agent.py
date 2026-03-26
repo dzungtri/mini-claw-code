@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
-from typing import Sequence
+from pathlib import Path
+from typing import Mapping, Sequence
 
+from .mcp import MCPRegistry, MCPToolAdapter
 from .types import AssistantTurn, Message, Provider, StopReason, ToolCall, ToolSet
 
 
@@ -77,9 +80,20 @@ class SimpleAgent:
     def __init__(self, provider: Provider) -> None:
         self.provider = provider
         self.tools = ToolSet()
+        self._mcp_registry: MCPRegistry | None = None
 
     def tool(self, tool: object) -> "SimpleAgent":
         self.tools.push(tool)  # type: ignore[arg-type]
+        return self
+
+    def enable_default_mcp(
+        self,
+        cwd: Path | None = None,
+        home: Path | None = None,
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> "SimpleAgent":
+        self._mcp_registry = MCPRegistry.discover_default(cwd=cwd, home=home, env=env)
         return self
 
     async def execute_tools(self, calls: Sequence[ToolCall]) -> list[tuple[str, str]]:
@@ -111,26 +125,28 @@ class SimpleAgent:
         messages: list[Message],
         events: "asyncio.Queue[AgentEvent]",
     ) -> list[Message]:
-        defs = self.tools.definitions()
+        async with AsyncExitStack() as stack:
+            runtime_tools = await self._runtime_tools(stack)
+            defs = runtime_tools.definitions()
 
-        while True:
-            try:
-                turn = await self.provider.chat(messages, defs)
-            except Exception as exc:
-                await events.put(AgentError(str(exc)))
-                return messages
+            while True:
+                try:
+                    turn = await self.provider.chat(messages, defs)
+                except Exception as exc:
+                    await events.put(AgentError(str(exc)))
+                    return messages
 
-            if turn.stop_reason is StopReason.STOP:
-                text = turn.text or ""
-                await events.put(AgentDone(text))
-                messages.append(Message.assistant(turn))
-                return messages
+                if turn.stop_reason is StopReason.STOP:
+                    text = turn.text or ""
+                    await events.put(AgentDone(text))
+                    messages.append(Message.assistant(turn))
+                    return messages
 
-            for call in turn.tool_calls:
-                await events.put(AgentToolCall(call.name, tool_summary(call)))
+                for call in turn.tool_calls:
+                    await events.put(AgentToolCall(call.name, tool_summary(call)))
 
-            results = await self.execute_tools(turn.tool_calls)
-            self.push_results(messages, turn, results)
+                results = await self._execute_tools_with_set(runtime_tools, turn.tool_calls)
+                self.push_results(messages, turn, results)
 
     async def run_with_events(
         self,
@@ -140,22 +156,50 @@ class SimpleAgent:
         await self.run_with_history([Message.user(prompt)], events)
 
     async def chat(self, messages: list[Message]) -> str:
-        defs = self.tools.definitions()
+        async with AsyncExitStack() as stack:
+            runtime_tools = await self._runtime_tools(stack)
+            defs = runtime_tools.definitions()
 
-        while True:
-            turn = await self.provider.chat(messages, defs)
+            while True:
+                turn = await self.provider.chat(messages, defs)
 
-            if turn.stop_reason is StopReason.STOP:
-                text = turn.text or ""
-                messages.append(Message.assistant(turn))
-                return text
+                if turn.stop_reason is StopReason.STOP:
+                    text = turn.text or ""
+                    messages.append(Message.assistant(turn))
+                    return text
 
-            for call in turn.tool_calls:
-                print(f"\x1b[2K\r{tool_summary(call)}")
+                for call in turn.tool_calls:
+                    print(f"\x1b[2K\r{tool_summary(call)}")
 
-            results = await self.execute_tools(turn.tool_calls)
-            self.push_results(messages, turn, results)
+                results = await self._execute_tools_with_set(runtime_tools, turn.tool_calls)
+                self.push_results(messages, turn, results)
 
     async def run(self, prompt: str) -> str:
         messages = [Message.user(prompt)]
         return await self.chat(messages)
+
+    async def _runtime_tools(self, stack: AsyncExitStack) -> ToolSet:
+        runtime_tools = self.tools.copy()
+        if self._mcp_registry is not None and self._mcp_registry.all():
+            adapter = await stack.enter_async_context(MCPToolAdapter(self._mcp_registry))
+            for tool in adapter.tools():
+                runtime_tools.push(tool)
+        return runtime_tools
+
+    async def _execute_tools_with_set(
+        self,
+        tools: ToolSet,
+        calls: Sequence[ToolCall],
+    ) -> list[tuple[str, str]]:
+        results: list[tuple[str, str]] = []
+        for call in calls:
+            tool = tools.get(call.name)
+            if tool is None:
+                content = f"error: unknown tool `{call.name}`"
+            else:
+                try:
+                    content = await tool.call(call.arguments)
+                except Exception as exc:
+                    content = f"error: {exc}"
+            results.append((call.id, content))
+        return results
