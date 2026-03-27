@@ -67,6 +67,12 @@ from .prompts import (
 )
 from .skills import Skill, SkillRegistry, default_skill_roots, parse_skill_file
 from .providers import OpenRouterProvider
+from .surfaces import (
+    SurfaceBlock,
+    render_runtime_status,
+    render_surface_block,
+    surface_block_for_event,
+)
 from .subagent import (
     DEFAULT_SUBAGENT_SYSTEM_PROMPT,
     SUBAGENT_PARENT_PROMPT_SECTION,
@@ -187,6 +193,7 @@ __all__ = [
     "SkillRegistry",
     "SCRATCH_PREFIX",
     "SYSTEM_PROMPT_FILE_ENV",
+    "SurfaceBlock",
     "SimpleAgent",
     "StopReason",
     "SUBAGENT_PARENT_PROMPT_SECTION",
@@ -241,6 +248,8 @@ __all__ = [
     "parse_sse_line",
     "parse_skill_file",
     "render_memory_prompt_section",
+    "render_runtime_status",
+    "render_surface_block",
     "render_subagent_prompt_section",
     "render_todo_prompt_section",
     "render_tool_universe_prompt_section",
@@ -254,6 +263,7 @@ __all__ = [
     "select_recent_memory_messages",
     "single_turn",
     "should_consider_memory_update",
+    "surface_block_for_event",
     "update_memory_file",
     "tool_universe_status_summary",
     "tool_summary",

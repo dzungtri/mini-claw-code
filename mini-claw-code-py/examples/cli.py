@@ -26,7 +26,10 @@ from mini_claw_code_py import (
     apply_harness_config,
     default_harness_config,
     load_prompt_template,
+    render_runtime_status,
     render_system_prompt,
+    render_surface_block,
+    surface_block_for_event,
 )
 
 SPINNER = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
@@ -41,6 +44,16 @@ RED = "\x1b[31m"
 DIM = "\x1b[2m"
 RESET = "\x1b[0m"
 CLEAR_LINE = "\x1b[2K\r"
+
+
+STRUCTURED_EVENT_TYPES = (
+    AgentTokenUsage,
+    AgentTodoUpdate,
+    AgentSubagentUpdate,
+    AgentApprovalUpdate,
+    AgentMemoryUpdate,
+    AgentContextCompaction,
+)
 
 
 def spinner_line(frame: int, label: str) -> str:
@@ -99,6 +112,7 @@ async def ui_event_loop(
     tool_count = 0
     collapsed_tools_reported = False
     streaming_text = False
+    last_structured_message: str | None = None
 
     print(spinner_line(frame, spinner_label), end="", flush=True)
 
@@ -147,24 +161,25 @@ async def ui_event_loop(
                 print(f"  {DIM}⎿  ... additional tool calls omitted ...{RESET}\n", end="", flush=True)
             print(spinner_line(frame, spinner_label), end="", flush=True)
         elif isinstance(event, AgentNotice):
+            if last_structured_message == event.message:
+                last_structured_message = None
+                print(spinner_line(frame, spinner_label), end="", flush=True)
+                continue
             streaming_text = False
             print(CLEAR_LINE, end="", flush=True)
             print(f"  {DIM}{event.message}{RESET}")
             print(spinner_line(frame, spinner_label), end="", flush=True)
-        elif isinstance(
-            event,
-            (
-                AgentTokenUsage,
-                AgentTodoUpdate,
-                AgentSubagentUpdate,
-                AgentApprovalUpdate,
-                AgentMemoryUpdate,
-                AgentContextCompaction,
-            ),
-        ):
+        elif isinstance(event, STRUCTURED_EVENT_TYPES):
             streaming_text = False
             print(CLEAR_LINE, end="", flush=True)
-            print(f"  {DIM}{event.message}{RESET}")
+            block = surface_block_for_event(event)
+            if block is None:
+                print(f"  {DIM}{event.message}{RESET}")
+                last_structured_message = getattr(event, "message", None)
+            else:
+                for line in render_surface_block(block):
+                    print(f"  {DIM}{line}{RESET}")
+                last_structured_message = getattr(event, "message", None)
             print(spinner_line(frame, spinner_label), end="", flush=True)
         elif isinstance(event, AgentDone):
             print(CLEAR_LINE, end="", flush=True)
@@ -177,20 +192,35 @@ async def ui_event_loop(
 
 
 def drain_notice_queue(queue: "asyncio.Queue[object]") -> None:
+    last_structured_message: str | None = None
     while not queue.empty():
         event = queue.get_nowait()
+        if isinstance(event, STRUCTURED_EVENT_TYPES):
+            block = surface_block_for_event(event)
+            if block is None:
+                print(f"  {DIM}{event.message}{RESET}")
+            else:
+                for line in render_surface_block(block):
+                    print(f"  {DIM}{line}{RESET}")
+            last_structured_message = getattr(event, "message", None)
+            continue
         if hasattr(event, "message"):
+            if last_structured_message == event.message:
+                last_structured_message = None
+                continue
             print(f"  {DIM}{event.message}{RESET}")
 
 
 def print_runtime_status(agent: HarnessAgent, *, plan_mode: bool) -> None:
     mode = "planning" if plan_mode else "execution"
-    print(f"  {DIM}Mode: {mode}{RESET}")
-    profile = agent.control_plane_profile_name()
-    if profile is not None:
-        print(f"  {DIM}Control profile: {profile}{RESET}")
-    print(f"  {DIM}{agent.todo_board().render()}{RESET}")
-    print(f"  {DIM}{agent.token_usage_tracker().render()}{RESET}")
+    lines = render_runtime_status(
+        mode=mode,
+        control_profile=agent.control_plane_profile_name(),
+        todo_text=agent.todo_board().render(),
+        token_usage_text=agent.token_usage_tracker().render(),
+    )
+    for line in lines:
+        print(f"  {DIM}{line}{RESET}")
     print()
 
 
