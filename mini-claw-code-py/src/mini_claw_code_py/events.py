@@ -31,7 +31,62 @@ class AgentNotice:
     message: str
 
 
-AgentEvent = AgentTextDelta | AgentToolCall | AgentDone | AgentError | AgentNotice
+@dataclass(slots=True)
+class AgentTokenUsage:
+    message: str
+
+
+@dataclass(slots=True)
+class AgentTodoUpdate:
+    message: str
+    total: int
+    completed: int
+
+
+@dataclass(slots=True)
+class AgentSubagentUpdate:
+    message: str
+    status: str
+    index: int
+    total: int
+    brief: str
+
+
+@dataclass(slots=True)
+class AgentApprovalUpdate:
+    message: str
+    status: str
+    tool_name: str
+
+
+@dataclass(slots=True)
+class AgentMemoryUpdate:
+    message: str
+    status: str
+    scope: str
+
+
+@dataclass(slots=True)
+class AgentContextCompaction:
+    message: str
+    archived_messages: int
+    kept_messages: int
+    triggered_by: tuple[str, ...]
+
+
+AgentEvent = (
+    AgentTextDelta
+    | AgentToolCall
+    | AgentDone
+    | AgentError
+    | AgentNotice
+    | AgentTokenUsage
+    | AgentTodoUpdate
+    | AgentSubagentUpdate
+    | AgentApprovalUpdate
+    | AgentMemoryUpdate
+    | AgentContextCompaction
+)
 
 
 def tool_summary(call: ToolCall) -> str:

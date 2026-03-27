@@ -12,11 +12,27 @@ from .context import (
 from .control_plane import (
     AuditEntry,
     AuditLog,
+    control_plane_profile,
+    CONTROL_PLANE_PROFILES,
     CONTROL_PLANE_PROMPT_SECTION,
     ControlPlaneSettings,
     render_control_plane_prompt_section,
 )
-from .events import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, tool_summary
+from .events import (
+    AgentApprovalUpdate,
+    AgentContextCompaction,
+    AgentDone,
+    AgentError,
+    AgentEvent,
+    AgentMemoryUpdate,
+    AgentNotice,
+    AgentSubagentUpdate,
+    AgentTextDelta,
+    AgentTodoUpdate,
+    AgentTokenUsage,
+    AgentToolCall,
+    tool_summary,
+)
 from .agent import SimpleAgent, single_turn
 from .harness import HARNESS_CORE_PROMPT_SECTION, HarnessAgent, render_harness_prompt_section
 from .memory import (
@@ -67,6 +83,13 @@ from .tool_universe import (
     tool_universe_status_summary,
 )
 from .todos import TODO_STATUSES, TodoBoard, TodoItem, WriteTodosTool, render_todo_prompt_section
+from .telemetry import (
+    TokenUsageSnapshot,
+    TokenUsageTracker,
+    estimate_assistant_turn_tokens,
+    estimate_text_tokens,
+    estimate_tool_definitions_tokens,
+)
 from .streaming import (
     MockStreamProvider,
     StreamAccumulator,
@@ -112,14 +135,21 @@ __all__ = [
     "AgentDone",
     "AgentError",
     "AgentEvent",
+    "AgentApprovalUpdate",
+    "AgentContextCompaction",
+    "AgentMemoryUpdate",
     "AgentNotice",
+    "AgentSubagentUpdate",
     "AgentTextDelta",
+    "AgentTodoUpdate",
+    "AgentTokenUsage",
     "AgentToolCall",
     "AskTool",
     "AssistantTurn",
     "BashTool",
     "ChannelInputHandler",
     "CONTROL_PLANE_PROMPT_SECTION",
+    "CONTROL_PLANE_PROFILES",
     "CliInputHandler",
     "ContextCompactionResult",
     "ContextCompactionSettings",
@@ -178,6 +208,8 @@ __all__ = [
     "DeferredToolRegistry",
     "TodoBoard",
     "TodoItem",
+    "TokenUsageSnapshot",
+    "TokenUsageTracker",
     "UPLOADS_PREFIX",
     "UserInputRequest",
     "WORKSPACE_PREFIX",
@@ -188,7 +220,11 @@ __all__ = [
     "allowed_workspace_roots",
     "estimate_message_tokens",
     "estimate_messages_tokens",
+    "estimate_assistant_turn_tokens",
+    "estimate_text_tokens",
+    "estimate_tool_definitions_tokens",
     "compact_message_history",
+    "control_plane_profile",
     "default_harness_config",
     "default_mcp_config_paths",
     "default_memory_sources",

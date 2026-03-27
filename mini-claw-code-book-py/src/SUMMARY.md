@@ -31,3 +31,5 @@
 - [Chapter 23: Tool Universe Management](./ch23-tool-universe-management.md)
 - [Chapter 24: Control Plane](./ch24-control-plane.md)
 - [Chapter 25: Agent-Native Harness Architecture](./ch25-middleware-architecture.md)
+- [Chapter 26: Token Usage Tracing](./ch26-token-usage-tracing.md)
+- [Chapter 27: Runtime Events](./ch27-runtime-events.md)

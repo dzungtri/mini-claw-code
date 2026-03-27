@@ -45,7 +45,9 @@ class HarnessConfig:
     enable_tool_universe: bool = True
     enable_skills: bool = True
     enable_control_plane: bool = True
+    control_plane_profile: str = "balanced"
     control_plane: ControlPlaneSettings = field(default_factory=ControlPlaneSettings)
+    enable_token_usage_tracing: bool = True
 
     def __post_init__(self) -> None:
         self.cwd = Path(self.cwd).expanduser().resolve()
@@ -122,12 +124,15 @@ def apply_harness_config(
         agent.enable_default_skills(config.cwd)
     if config.enable_control_plane:
         agent.enable_control_plane(
+            profile=config.control_plane_profile,
             warn_repeated_tool_calls=config.control_plane.warn_repeated_tool_calls,
             block_repeated_tool_calls=config.control_plane.block_repeated_tool_calls,
             require_overwrite_approval=config.control_plane.require_overwrite_approval,
             require_risky_bash_approval=config.control_plane.require_risky_bash_approval,
             warn_on_missing_verification=config.control_plane.warn_on_missing_verification,
         )
+    if config.enable_token_usage_tracing:
+        agent.enable_token_usage_tracing()
     return agent
 
 

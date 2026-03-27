@@ -4,10 +4,16 @@ import asyncio
 from pathlib import Path
 
 from mini_claw_code_py import (
+    AgentApprovalUpdate,
+    AgentContextCompaction,
     AgentDone,
     AgentError,
+    AgentMemoryUpdate,
     AgentNotice,
+    AgentSubagentUpdate,
     AgentTextDelta,
+    AgentTokenUsage,
+    AgentTodoUpdate,
     AgentToolCall,
     ChannelInputHandler,
     DEFAULT_PLAN_PROMPT_TEMPLATE,
@@ -145,6 +151,21 @@ async def ui_event_loop(
             print(CLEAR_LINE, end="", flush=True)
             print(f"  {DIM}{event.message}{RESET}")
             print(spinner_line(frame, spinner_label), end="", flush=True)
+        elif isinstance(
+            event,
+            (
+                AgentTokenUsage,
+                AgentTodoUpdate,
+                AgentSubagentUpdate,
+                AgentApprovalUpdate,
+                AgentMemoryUpdate,
+                AgentContextCompaction,
+            ),
+        ):
+            streaming_text = False
+            print(CLEAR_LINE, end="", flush=True)
+            print(f"  {DIM}{event.message}{RESET}")
+            print(spinner_line(frame, spinner_label), end="", flush=True)
         elif isinstance(event, AgentDone):
             print(CLEAR_LINE, end="", flush=True)
             print()
@@ -155,16 +176,21 @@ async def ui_event_loop(
             return
 
 
-def drain_notice_queue(queue: "asyncio.Queue[AgentNotice]") -> None:
+def drain_notice_queue(queue: "asyncio.Queue[object]") -> None:
     while not queue.empty():
-        notice = queue.get_nowait()
-        print(f"  {DIM}{notice.message}{RESET}")
+        event = queue.get_nowait()
+        if hasattr(event, "message"):
+            print(f"  {DIM}{event.message}{RESET}")
 
 
 def print_runtime_status(agent: HarnessAgent, *, plan_mode: bool) -> None:
     mode = "planning" if plan_mode else "execution"
     print(f"  {DIM}Mode: {mode}{RESET}")
+    profile = agent.control_plane_profile_name()
+    if profile is not None:
+        print(f"  {DIM}Control profile: {profile}{RESET}")
     print(f"  {DIM}{agent.todo_board().render()}{RESET}")
+    print(f"  {DIM}{agent.token_usage_tracker().render()}{RESET}")
     print()
 
 

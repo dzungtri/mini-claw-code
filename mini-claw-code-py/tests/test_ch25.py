@@ -33,6 +33,8 @@ def test_ch25_default_harness_config_uses_flat_runtime_defaults(tmp_path: Path) 
     assert config.enable_context_durability is True
     assert config.enable_subagents is True
     assert config.enable_control_plane is True
+    assert config.control_plane_profile == "balanced"
+    assert config.enable_token_usage_tracing is True
 
 
 def test_ch25_tool_summary_lives_in_runtime_events_module() -> None:
@@ -87,5 +89,5 @@ async def test_ch25_apply_harness_config_boots_expected_runtime_features(tmp_pat
     assert any(message.startswith("Memory loaded:") for message in notices)
     assert any(message.startswith("Workspace ready:") for message in notices)
     assert any(message.startswith("Tool universe ready:") for message in notices)
-    assert any(message.startswith("Control plane active:") for message in notices)
+    assert any(message.startswith("Control plane active:") and "profile=balanced" in message for message in notices)
     assert not any(message.startswith("Subagent capability available:") for message in notices)

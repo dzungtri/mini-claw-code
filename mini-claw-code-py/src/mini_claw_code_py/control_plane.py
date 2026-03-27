@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +52,31 @@ class ControlPlaneSettings:
     warn_on_missing_verification: bool = True
 
 
+CONTROL_PLANE_PROFILES: dict[str, ControlPlaneSettings] = {
+    "safe": ControlPlaneSettings(
+        warn_repeated_tool_calls=2,
+        block_repeated_tool_calls=4,
+        require_overwrite_approval=True,
+        require_risky_bash_approval=True,
+        warn_on_missing_verification=True,
+    ),
+    "balanced": ControlPlaneSettings(
+        warn_repeated_tool_calls=3,
+        block_repeated_tool_calls=5,
+        require_overwrite_approval=True,
+        require_risky_bash_approval=True,
+        warn_on_missing_verification=True,
+    ),
+    "trusted": ControlPlaneSettings(
+        warn_repeated_tool_calls=4,
+        block_repeated_tool_calls=6,
+        require_overwrite_approval=False,
+        require_risky_bash_approval=False,
+        warn_on_missing_verification=False,
+    ),
+}
+
+
 @dataclass(slots=True)
 class AuditEntry:
     kind: str
@@ -79,6 +104,14 @@ class AuditLog:
 
 def render_control_plane_prompt_section() -> str:
     return CONTROL_PLANE_PROMPT_SECTION
+
+
+def control_plane_profile(name: str) -> ControlPlaneSettings:
+    profile = CONTROL_PLANE_PROFILES.get(name)
+    if profile is None:
+        known = ", ".join(sorted(CONTROL_PLANE_PROFILES))
+        raise ValueError(f"unknown control-plane profile '{name}' (expected one of: {known})")
+    return replace(profile)
 
 
 def tool_call_signature(name: str, args: object) -> str:

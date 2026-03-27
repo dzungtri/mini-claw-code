@@ -35,6 +35,7 @@ This chapter now implements the first real control-plane slice:
 3. verification warnings before the agent finalizes mutated work
 4. loop detection for repeated identical tool calls
 5. an audit log of important runtime control decisions
+6. named policy profiles such as `safe`, `balanced`, and `trusted`
 
 These rules are not just safety decoration.
 
@@ -61,6 +62,14 @@ questions like:
 Those are not tool definitions.
 
 They are runtime decisions about how the harness should operate.
+
+The current Python harness now makes one more part of that explicit:
+
+- the control plane can run under a named profile
+
+That means the runtime can now answer another useful question:
+
+> "How strict should this harness be right now?"
 
 ## Mental model
 
@@ -197,6 +206,12 @@ The Python harness now implements two concrete approval gates:
 When approval is needed, the runtime asks the user directly and records the
 decision in the audit log.
 
+Profiles matter here too:
+
+- `safe` keeps stricter defaults
+- `balanced` keeps the normal tutorial defaults
+- `trusted` relaxes approval friction for higher-trust environments
+
 ## Verification before exit
 
 One of the easiest agent failures is premature completion.
@@ -237,6 +252,12 @@ The current Python control plane keeps the first slice intentionally modest:
   verification step
 - it records that warning in the audit log
 
+This is also profile-sensitive:
+
+- `safe` keeps this warning on
+- `balanced` keeps it on as the default
+- `trusted` can relax it when the runtime is being used in a more trusted mode
+
 ## Loop detection
 
 Another common runtime failure is repetition.
@@ -257,6 +278,12 @@ It only needs the right policy direction:
 - detect repetitive patterns
 - stop blind repetition
 - either change strategy or surface the blocker
+
+Profiles affect this too.
+
+A stricter profile can warn and block earlier.
+
+A more trusted profile can allow more repetition before intervening.
 
 In practice, loop detection often benefits from observability signals such as:
 

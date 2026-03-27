@@ -77,7 +77,14 @@ class MemoryUpdateRequest:
     messages: list[Message]
 
 
-MemoryNoticeCallback = Callable[[str], Awaitable[None] | None]
+@dataclass(slots=True)
+class MemoryNotice:
+    scope: str
+    status: str
+    message: str
+
+
+MemoryNoticeCallback = Callable[[MemoryNotice], Awaitable[None] | None]
 
 
 def default_memory_sources(
@@ -405,23 +412,31 @@ class MemoryUpdateQueue:
                     added = await self.updater.update(request.source, request.messages)
                 except Exception as exc:
                     await self._emit_notice(
-                        f"Memory update failed for {request.source.scope} memory: {exc}"
+                        MemoryNotice(
+                            scope=request.source.scope,
+                            status="failed",
+                            message=f"Memory update failed for {request.source.scope} memory: {exc}",
+                        )
                     )
                     continue
                 if added > 0:
                     noun = "line" if added == 1 else "lines"
                     await self._emit_notice(
-                        f"Memory updated: {request.source.scope} memory (+{added} {noun})."
+                        MemoryNotice(
+                            scope=request.source.scope,
+                            status="updated",
+                            message=f"Memory updated: {request.source.scope} memory (+{added} {noun}).",
+                        )
                     )
         finally:
             self._processing = False
             if self._pending:
                 self._schedule()
 
-    async def _emit_notice(self, message: str) -> None:
+    async def _emit_notice(self, notice: MemoryNotice) -> None:
         if self.on_notice is None:
             return
-        result = self.on_notice(message)
+        result = self.on_notice(notice)
         if result is not None:
             await result
 

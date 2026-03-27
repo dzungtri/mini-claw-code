@@ -7,6 +7,7 @@ from typing import Mapping
 
 from .control_plane import (
     AuditLog,
+    control_plane_profile,
     ControlPlaneSettings,
     approval_message_for_tool,
     classify_loop,
@@ -20,9 +21,24 @@ from .context import (
     compact_message_history,
     render_context_durability_prompt_section,
 )
-from .events import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, tool_summary
+from .events import (
+    AgentApprovalUpdate,
+    AgentContextCompaction,
+    AgentDone,
+    AgentError,
+    AgentEvent,
+    AgentMemoryUpdate,
+    AgentNotice,
+    AgentSubagentUpdate,
+    AgentTextDelta,
+    AgentTokenUsage,
+    AgentTodoUpdate,
+    AgentToolCall,
+    tool_summary,
+)
 from .memory import (
     MemoryRegistry,
+    MemoryNotice,
     MemoryUpdateQueue,
     MemoryUpdater,
     latest_memory_exchange,
@@ -40,8 +56,14 @@ from .tool_universe import (
     tool_universe_status_summary,
 )
 from .todos import TodoBoard, WriteTodosTool, render_todo_prompt_section
+from .telemetry import (
+    TokenUsageTracker,
+    estimate_assistant_turn_tokens,
+    estimate_messages_tokens,
+    estimate_tool_definitions_tokens,
+)
 from .tools import AskTool, BashTool, EditTool, InputHandler, ReadTool, WriteTool
-from .types import Message, Provider, StopReason, ToolDefinition, ToolSet
+from .types import AssistantTurn, Message, Provider, StopReason, ToolDefinition, ToolSet
 from .workspace import (
     WorkspaceBashTool,
     WorkspaceConfig,
@@ -80,7 +102,7 @@ class HarnessAgent:
         self._memory_registry = MemoryRegistry()
         self._memory_update_queue: MemoryUpdateQueue | None = None
         self._memory_update_scope = "user"
-        self._background_notice_queue: "asyncio.Queue[AgentNotice]" = asyncio.Queue()
+        self._background_notice_queue: "asyncio.Queue[object]" = asyncio.Queue()
         self._audit_log = AuditLog()
         self._workspace_config: WorkspaceConfig | None = None
         self._mcp_registry: MCPRegistry | None = None
@@ -103,6 +125,9 @@ class HarnessAgent:
         self._control_plane_enabled = False
         self._control_plane_prompt_enabled = False
         self._control_settings = ControlPlaneSettings()
+        self._control_profile_name = "balanced"
+        self._token_usage_enabled = False
+        self._token_usage_tracker = TokenUsageTracker()
         self.plan_system_prompt = DEFAULT_PLAN_PROMPT_TEMPLATE
         self.execution_system_prompt = DEFAULT_SYSTEM_PROMPT_TEMPLATE
         self.exit_plan_def = ToolDefinition.new(
@@ -408,7 +433,7 @@ class HarnessAgent:
         self._memory_update_scope = target_scope
         return self
 
-    def notice_queue(self) -> "asyncio.Queue[AgentNotice]":
+    def notice_queue(self) -> "asyncio.Queue[object]":
         return self._background_notice_queue
 
     def audit_log(self) -> AuditLog:
@@ -450,18 +475,41 @@ class HarnessAgent:
     def enable_control_plane(
         self,
         *,
-        warn_repeated_tool_calls: int = 3,
-        block_repeated_tool_calls: int = 5,
-        require_overwrite_approval: bool = True,
-        require_risky_bash_approval: bool = True,
-        warn_on_missing_verification: bool = True,
+        profile: str = "balanced",
+        warn_repeated_tool_calls: int | None = None,
+        block_repeated_tool_calls: int | None = None,
+        require_overwrite_approval: bool | None = None,
+        require_risky_bash_approval: bool | None = None,
+        warn_on_missing_verification: bool | None = None,
     ) -> "HarnessAgent":
+        settings = control_plane_profile(profile)
+        self._control_profile_name = profile
         self._control_settings = ControlPlaneSettings(
-            warn_repeated_tool_calls=warn_repeated_tool_calls,
-            block_repeated_tool_calls=block_repeated_tool_calls,
-            require_overwrite_approval=require_overwrite_approval,
-            require_risky_bash_approval=require_risky_bash_approval,
-            warn_on_missing_verification=warn_on_missing_verification,
+            warn_repeated_tool_calls=(
+                settings.warn_repeated_tool_calls
+                if warn_repeated_tool_calls is None
+                else warn_repeated_tool_calls
+            ),
+            block_repeated_tool_calls=(
+                settings.block_repeated_tool_calls
+                if block_repeated_tool_calls is None
+                else block_repeated_tool_calls
+            ),
+            require_overwrite_approval=(
+                settings.require_overwrite_approval
+                if require_overwrite_approval is None
+                else require_overwrite_approval
+            ),
+            require_risky_bash_approval=(
+                settings.require_risky_bash_approval
+                if require_risky_bash_approval is None
+                else require_risky_bash_approval
+            ),
+            warn_on_missing_verification=(
+                settings.warn_on_missing_verification
+                if warn_on_missing_verification is None
+                else warn_on_missing_verification
+            ),
             audit_limit=self._control_settings.audit_limit,
         )
         self._audit_log = AuditLog(limit=self._control_settings.audit_limit)
@@ -480,6 +528,18 @@ class HarnessAgent:
             self._control_plane_prompt_enabled = True
 
         return self
+
+    def control_plane_profile_name(self) -> str | None:
+        if not self._control_plane_enabled:
+            return None
+        return self._control_profile_name
+
+    def enable_token_usage_tracing(self) -> "HarnessAgent":
+        self._token_usage_enabled = True
+        return self
+
+    def token_usage_tracker(self) -> TokenUsageTracker:
+        return self._token_usage_tracker
 
     async def plan(
         self,
@@ -557,7 +617,9 @@ class HarnessAgent:
             if allowed is None and self._control_plane_enabled:
                 await events.put(
                     AgentNotice(
-                        "Control plane active: clarification rules, approval gates, verification warnings, loop detection, audit log."
+                        "Control plane active: "
+                        f"profile={self._control_profile_name}, "
+                        "clarification rules, approval gates, verification warnings, loop detection, audit log."
                     )
                 )
 
@@ -583,8 +645,17 @@ class HarnessAgent:
 
                 compaction = self._maybe_compact_messages(messages)
                 if compaction is not None:
+                    await events.put(
+                        AgentContextCompaction(
+                            message=compaction.notice(),
+                            archived_messages=compaction.archived_messages,
+                            kept_messages=compaction.kept_messages,
+                            triggered_by=compaction.triggered_by,
+                        )
+                    )
                     await events.put(AgentNotice(compaction.notice()))
 
+                prompt_token_estimate = self._estimate_prompt_tokens(messages, defs)
                 stream_queue: asyncio.Queue[object] = asyncio.Queue()
 
                 async def forward() -> None:
@@ -606,6 +677,8 @@ class HarnessAgent:
 
                 await forwarder
 
+                self._record_token_usage(turn, prompt_token_estimate, events)
+
                 if turn.stop_reason is StopReason.STOP:
                     text = (turn.text or "").strip()
                     if not text:
@@ -621,10 +694,12 @@ class HarnessAgent:
                         self._audit_log.push("verify", warning)
                         await events.put(AgentNotice(warning))
                     if allowed is None and self._todo_board.complete_all():
+                        await events.put(self._todo_event())
                         await events.put(AgentNotice(self._todo_board.notice()))
                     notice = await self._queue_memory_update(messages)
                     if notice:
-                        await events.put(AgentNotice(notice))
+                        await events.put(notice)
+                        await events.put(AgentNotice(notice.message))
                     await events.put(AgentDone(text))
                     return text
 
@@ -680,6 +755,15 @@ class HarnessAgent:
                         else:
                             brief = _tool_detail(call.arguments)
                             await events.put(
+                                AgentSubagentUpdate(
+                                    message=f"Subagent started ({subagent_calls_seen}/{self._max_parallel_subagents}): {brief}",
+                                    status="started",
+                                    index=subagent_calls_seen,
+                                    total=self._max_parallel_subagents,
+                                    brief=brief,
+                                )
+                            )
+                            await events.put(
                                 AgentNotice(
                                     f"Subagent started ({subagent_calls_seen}/{self._max_parallel_subagents}): {brief}"
                                 )
@@ -701,6 +785,7 @@ class HarnessAgent:
                         recent_tool_signatures.append(tool_call_signature(call.name, call.arguments))
                         recent_tool_signatures[:] = recent_tool_signatures[-20:]
                     if call.name == "write_todos" and not content.startswith("error:"):
+                        await events.put(self._todo_event())
                         await events.put(AgentNotice(self._todo_board.notice()))
                     if self._control_plane_enabled and not content.startswith("error:"):
                         self._record_control_plane_success(call.name, call.arguments)
@@ -713,6 +798,15 @@ class HarnessAgent:
                     ):
                         results[result_index] = (call_id, content)
                         brief = subagent_briefs[index - 1]
+                        await events.put(
+                            AgentSubagentUpdate(
+                                message=f"Subagent finished ({index}/{len(subagent_outputs)}): {brief}",
+                                status="finished",
+                                index=index,
+                                total=len(subagent_outputs),
+                                brief=brief,
+                            )
+                        )
                         await events.put(
                             AgentNotice(
                                 f"Subagent finished ({index}/{len(subagent_outputs)}): {brief}"
@@ -735,7 +829,8 @@ class HarnessAgent:
                     text = turn.text or ""
                     notice = await self._queue_memory_update(messages)
                     if notice:
-                        await events.put(AgentNotice(notice))
+                        await events.put(notice)
+                        await events.put(AgentNotice(notice.message))
                     await events.put(AgentDone(text))
                     return text
 
@@ -767,6 +862,27 @@ class HarnessAgent:
             )
         return effective
 
+    def _estimate_prompt_tokens(
+        self,
+        messages: list[Message],
+        defs: list[ToolDefinition],
+    ) -> int:
+        return estimate_messages_tokens(messages) + estimate_tool_definitions_tokens(defs)
+
+    def _record_token_usage(
+        self,
+        turn: AssistantTurn,
+        prompt_token_estimate: int,
+        events: "asyncio.Queue[AgentEvent]",
+    ) -> None:
+        if not self._token_usage_enabled:
+            return
+        snapshot = self._token_usage_tracker.record(
+            prompt_tokens=prompt_token_estimate,
+            completion_tokens=estimate_assistant_turn_tokens(turn),
+        )
+        events.put_nowait(AgentTokenUsage(snapshot.notice(self._token_usage_tracker.total_tokens())))
+
     def _default_memory_update_provider(self) -> Provider | None:
         provider = self.provider
         chat = getattr(provider, "chat", None)
@@ -781,7 +897,7 @@ class HarnessAgent:
             return provider  # type: ignore[return-value]
         return None
 
-    async def _queue_memory_update(self, messages: list[Message]) -> str | None:
+    async def _queue_memory_update(self, messages: list[Message]) -> AgentMemoryUpdate | None:
         if self._memory_update_queue is None:
             return None
         source = self._memory_registry.get(self._memory_update_scope)
@@ -791,10 +907,20 @@ class HarnessAgent:
         if not should_consider_memory_update(snapshot):
             return None
         await self._memory_update_queue.add(source, snapshot)
-        return f"Memory update queued for {source.scope} memory."
+        return AgentMemoryUpdate(
+            message=f"Memory update queued for {source.scope} memory.",
+            status="queued",
+            scope=source.scope,
+        )
 
-    async def _emit_background_notice(self, message: str) -> None:
-        await self._background_notice_queue.put(AgentNotice(message))
+    async def _emit_background_notice(self, notice: MemoryNotice) -> None:
+        event = AgentMemoryUpdate(
+            message=notice.message,
+            status=notice.status,
+            scope=notice.scope,
+        )
+        await self._background_notice_queue.put(event)
+        await self._background_notice_queue.put(AgentNotice(notice.message))
 
     def _require_or_default_workspace(self) -> WorkspaceConfig:
         if self._workspace_config is not None:
@@ -852,6 +978,13 @@ class HarnessAgent:
             return False
 
         self._audit_log.push("approval", f"Approval required for {name}: {message}")
+        await events.put(
+            AgentApprovalUpdate(
+                message=f"Approval required: {message}",
+                status="required",
+                tool_name=name,
+            )
+        )
         await events.put(AgentNotice(f"Approval required: {message}"))
         ask_tool = runtime_tools.get("ask_user")
         if ask_tool is None:
@@ -867,10 +1000,24 @@ class HarnessAgent:
         approved = normalized in {"approve", "approved", "yes", "y", "1"}
         if approved:
             self._audit_log.push("approval", f"Approval granted for {name}")
+            await events.put(
+                AgentApprovalUpdate(
+                    message=f"Approval granted: {message}",
+                    status="granted",
+                    tool_name=name,
+                )
+            )
             await events.put(AgentNotice(f"Approval granted: {message}"))
             return False
 
         self._audit_log.push("approval", f"Approval denied for {name}")
+        await events.put(
+            AgentApprovalUpdate(
+                message=f"Approval denied: {message}",
+                status="denied",
+                tool_name=name,
+            )
+        )
         await events.put(AgentNotice(f"Approval denied: {message}"))
         return True
 
@@ -903,6 +1050,15 @@ class HarnessAgent:
             self._audit_log.push("verify", f"Verification step observed via {name}")
         if is_mutating_tool(name, args):
             self._audit_log.push("mutate", f"Mutation step observed via {name}")
+
+    def _todo_event(self) -> AgentTodoUpdate:
+        items = self._todo_board.items()
+        completed = sum(1 for item in items if item.status == "done")
+        return AgentTodoUpdate(
+            message=self._todo_board.notice(),
+            total=len(items),
+            completed=completed,
+        )
 
     @staticmethod
     def _mutation_since_last_verification(messages: list[Message]) -> bool:
