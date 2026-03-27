@@ -5,7 +5,6 @@ from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Mapping
 
-from .agent import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, tool_summary
 from .control_plane import (
     AuditLog,
     ControlPlaneSettings,
@@ -21,6 +20,7 @@ from .context import (
     compact_message_history,
     render_context_durability_prompt_section,
 )
+from .events import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, tool_summary
 from .memory import (
     MemoryRegistry,
     MemoryUpdateQueue,

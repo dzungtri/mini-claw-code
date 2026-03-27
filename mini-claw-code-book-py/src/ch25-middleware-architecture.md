@@ -395,6 +395,66 @@ Or:
 
 So config should stay separate from policy logic.
 
+## The first flat refactor
+
+This book should not jump straight from a flat tutorial layout into a deep
+package tree.
+
+That would make the code harder to read right when the runtime is becoming more
+interesting.
+
+So the first refactor should stay flat.
+
+That is the approach the Python project should take first:
+
+- keep `harness.py` as the main runtime file
+- add `events.py` for runtime event types
+- add `config.py` for harness assembly defaults
+- keep state and capability modules flat until they become too large
+
+That gives us a cleaner architecture without sacrificing readability.
+
+### Why `events.py` comes first
+
+The harness already emits a real runtime stream:
+
+- text deltas
+- tool-call notices
+- memory notices
+- subagent notices
+- control-plane notices
+- completion and error events
+
+So `events.py` is a natural first extraction.
+
+It makes the event model explicit without changing the learning flow.
+
+### Why `config.py` comes first
+
+The harness CLI was already assembling a large runtime profile:
+
+- core tools
+- workspace
+- memory
+- context durability
+- subagents
+- MCP
+- tool-universe management
+- skills
+- control plane
+
+That is exactly the point where configuration should stop being an ad hoc chain
+inside the app entrypoint.
+
+So `config.py` should become the place for:
+
+- default runtime profile selection
+- path defaults
+- feature toggles
+- runtime thresholds and limits
+
+That is a clean first architectural step.
+
 ## Where middleware fits now
 
 Now we can place middleware in the architecture without giving it too much
@@ -455,12 +515,33 @@ Those are bigger than hook-attached behavior.
 
 They are part of the harness structure itself.
 
-## Recommended folder shape
+## Flat now, structured later
 
 The current project is still intentionally flat.
 
 That was the right decision while the tutorial was building the ideas one by
 one.
+
+So the immediate code shape can stay like this:
+
+```text
+mini_claw_code_py/
+  agent.py
+  config.py
+  context.py
+  control_plane.py
+  events.py
+  harness.py
+  mcp.py
+  memory.py
+  skills.py
+  subagent.py
+  todos.py
+  tool_universe.py
+  workspace.py
+```
+
+That is still easy to read.
 
 But the target architecture should now become clearer.
 
@@ -528,7 +609,7 @@ mini_claw_code_py/
       audit.py
 ```
 
-This is a **target shape**.
+This deeper structure is a **target shape**.
 
 It does not mean the tutorial should refactor into all of this immediately.
 

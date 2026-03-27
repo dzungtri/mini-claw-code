@@ -17,6 +17,8 @@ from mini_claw_code_py import (
     OpenRouterProvider,
     SYSTEM_PROMPT_FILE_ENV,
     UserInputRequest,
+    apply_harness_config,
+    default_harness_config,
     load_prompt_template,
     render_system_prompt,
 )
@@ -189,25 +191,12 @@ async def main() -> None:
         cwd=cwd,
     )
 
-    agent = (
-        HarnessAgent(provider)
-        .system_prompt(system_prompt)
-        .plan_prompt(plan_prompt)
-        .enable_core_tools(ChannelInputHandler(input_queue))
-        .enable_workspace(
-            cwd,
-            scratch=cwd / ".agent-work",
-            outputs=cwd / "outputs",
-        )
-        .enable_default_memory(cwd=cwd)
-        .enable_user_memory_file(Path.home() / ".agents" / "AGENTS.md")
-        .enable_memory_updates(debounce_seconds=2.0, target_scope="user")
-        .enable_context_durability()
-        .enable_subagents(max_parallel_subagents=2)
-        .enable_default_mcp(cwd=cwd)
-        .enable_tool_universe_management()
-        .enable_default_skills(cwd)
-        .enable_control_plane()
+    agent = HarnessAgent(provider).system_prompt(system_prompt).plan_prompt(plan_prompt)
+    config = default_harness_config(cwd=cwd, home=Path.home())
+    apply_harness_config(
+        agent,
+        config,
+        handler=ChannelInputHandler(input_queue),
     )
 
     history: list[Message] = []

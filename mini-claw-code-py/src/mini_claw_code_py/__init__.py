@@ -1,3 +1,4 @@
+from .config import HarnessConfig, WorkspacePathsConfig, apply_harness_config, default_harness_config
 from .context import (
     ARCHIVED_CONTEXT_CLOSE,
     ARCHIVED_CONTEXT_OPEN,
@@ -15,7 +16,8 @@ from .control_plane import (
     ControlPlaneSettings,
     render_control_plane_prompt_section,
 )
-from .agent import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, SimpleAgent, single_turn
+from .events import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, tool_summary
+from .agent import SimpleAgent, single_turn
 from .harness import HARNESS_CORE_PROMPT_SECTION, HarnessAgent, render_harness_prompt_section
 from .memory import (
     LEARNED_MEMORY_END,
@@ -129,6 +131,7 @@ __all__ = [
     "AuditLog",
     "EditTool",
     "HARNESS_CORE_PROMPT_SECTION",
+    "HarnessConfig",
     "HarnessAgent",
     "InputHandler",
     "Message",
@@ -179,11 +182,14 @@ __all__ = [
     "UserInputRequest",
     "WORKSPACE_PREFIX",
     "WorkspaceConfig",
+    "WorkspacePathsConfig",
     "WriteTool",
+    "apply_harness_config",
     "allowed_workspace_roots",
     "estimate_message_tokens",
     "estimate_messages_tokens",
     "compact_message_history",
+    "default_harness_config",
     "default_mcp_config_paths",
     "default_memory_sources",
     "default_skill_roots",
@@ -214,6 +220,7 @@ __all__ = [
     "should_consider_memory_update",
     "update_memory_file",
     "tool_universe_status_summary",
+    "tool_summary",
     "validate_bash_command",
     "WriteTodosTool",
 ]
