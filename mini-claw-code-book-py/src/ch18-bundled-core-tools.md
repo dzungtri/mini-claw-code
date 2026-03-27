@@ -373,11 +373,14 @@ Those should remain as earlier simple examples.
 The harness should instead get one evolving app surface:
 
 ```text
-examples/cli.py
+src/mini_claw_code_py/tui/app.py
 ```
 
-That file can start as a small copy of the current TUI shape, but from now on
-it becomes the main app the later chapters continue extending.
+The `examples/cli.py` file may still exist as a thin wrapper, but the real app
+should live in the package from this point forward.
+
+That app can start as a small copy of the current TUI shape, but from now on it
+becomes the main app the later chapters continue extending.
 
 That gives the project one stable growth path:
 

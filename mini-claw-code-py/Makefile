@@ -24,4 +24,4 @@ tui:
 	PYTHONPATH=$(PYTHONPATH) $(UV) run python examples/tui.py
 
 cli:
-	PYTHONPATH=$(PYTHONPATH) $(UV) run python examples/cli.py
+	PYTHONPATH=$(PYTHONPATH) $(UV) run python -m mini_claw_code_py.tui

@@ -15,7 +15,7 @@ There are now two useful layers in the Python project:
 - `examples/tui.py`
   - the earlier small teaching example around `PlanAgent`
 - `src/mini_claw_code_py/tui/`
-  - the richer terminal UI package used by `examples/cli.py`
+  - the richer terminal UI package used by the harness app
 
 That is the right split.
 
@@ -81,13 +81,15 @@ Once the harness CLI started growing, one file stopped being the right shape.
 The better design is:
 
 - `examples/cli.py`
-  - startup only
-- `tui/app.py`
+  - thin compatibility wrapper only
+- `src/mini_claw_code_py/tui/app.py`
   - command loop, session actions, plan/execute orchestration
-- `tui/console.py`
+- `src/mini_claw_code_py/tui/console.py`
   - terminal rendering, input prompts, session selection, spinner
-- `tui/theme.py`
+- `src/mini_claw_code_py/tui/theme.py`
   - semantic style constants
+- `src/mini_claw_code_py/tui/__main__.py`
+  - package entrypoint for `python -m mini_claw_code_py.tui`
 
 That follows the same rule as the rest of the book:
 
