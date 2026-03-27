@@ -30,3 +30,4 @@
 - [Chapter 22: Subagent Orchestration](./ch22-subagent-orchestration.md)
 - [Chapter 23: Tool Universe Management](./ch23-tool-universe-management.md)
 - [Chapter 24: Control Plane](./ch24-control-plane.md)
+- [Chapter 25: Agent-Native Harness Architecture](./ch25-middleware-architecture.md)
