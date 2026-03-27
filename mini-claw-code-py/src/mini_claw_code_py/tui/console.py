@@ -24,6 +24,7 @@ from mini_claw_code_py import (
     AgentTodoUpdate,
     AgentTokenUsage,
     AgentToolCall,
+    Message,
     SessionRecord,
     SessionStore,
     UserInputRequest,
@@ -134,6 +135,25 @@ def summarize_tool_call(
     if collapsed_tools_reported:
         return ToolRenderDecision(show=False, message="")
     return ToolRenderDecision(show=True, message="additional tool calls omitted")
+
+
+def summarize_history_message(message: Message, *, max_chars: int = 96) -> tuple[str, str] | None:
+    if message.kind == "system":
+        return None
+    if message.kind == "user":
+        return "user", _truncate_preview(message.content or "", max_chars=max_chars)
+    if message.kind == "tool_result":
+        return "tool", _truncate_preview(message.content or "", max_chars=max_chars)
+    if message.kind == "assistant" and message.turn is not None:
+        if message.turn.text:
+            return "assistant", _truncate_preview(message.turn.text, max_chars=max_chars)
+        if message.turn.tool_calls:
+            names = ", ".join(call.name for call in message.turn.tool_calls)
+            return "assistant", _truncate_preview(f"[tool call] {names}", max_chars=max_chars)
+        return "assistant", ""
+    if message.content:
+        return message.kind, _truncate_preview(message.content, max_chars=max_chars)
+    return None
 
 
 class ConsoleUI:
@@ -287,6 +307,31 @@ class ConsoleUI:
 
     def print_resumed_session(self, session: SessionRecord) -> None:
         self._print_line("session", f"resumed {session.id} | {session.title}", style=theme.SUCCESS)
+        self.console.print()
+
+    def print_history_preview(self, history: list[Message], *, limit: int = 8) -> None:
+        rows: list[tuple[str, str]] = []
+        for message in history:
+            entry = summarize_history_message(message)
+            if entry is not None and entry[1]:
+                rows.append(entry)
+        if not rows:
+            return
+
+        preview = Table.grid(padding=(0, 1))
+        preview.add_column(style=theme.MUTED, width=10, no_wrap=True)
+        preview.add_column()
+        for role, text in rows[-limit:]:
+            preview.add_row(role, text)
+        self.console.print(
+            Panel(
+                preview,
+                title=Text("Recent Context", style=theme.PRIMARY_BOLD),
+                border_style=theme.BORDER,
+                box=box.ROUNDED,
+                padding=(0, 1),
+            )
+        )
         self.console.print()
 
     def print_usage(self, message: str) -> None:
@@ -482,3 +527,10 @@ class ConsoleUI:
             )
         )
         self.console.print()
+
+
+def _truncate_preview(text: str, *, max_chars: int) -> str:
+    compact = " ".join(text.strip().split())
+    if len(compact) <= max_chars:
+        return compact
+    return compact[: max_chars - 3].rstrip() + "..."

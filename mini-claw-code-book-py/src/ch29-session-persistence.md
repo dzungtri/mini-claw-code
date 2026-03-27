@@ -415,9 +415,50 @@ That gives the persistence layer a good direction:
 - default resume can load a compact working snapshot cheaply
 - large bodies can be loaded lazily only when truly needed
 
-The first implementation does not need advanced lazy loading yet.
+The important runtime detail is what happens on **resume**.
 
-But the schema should not block it.
+The harness should not eagerly inflate every `content_ref` back into the active
+conversation history by default.
+
+That would shrink `session.json` but still lose the RAM benefit during restore.
+
+So the better first runtime rule is:
+
+> on normal resume, restore a short preview plus the blob path, not the full
+> body
+
+That keeps the active context bounded while still preserving access to the full
+text on disk.
+
+## How the runtime should expose blobs
+
+If a large message was offloaded, the resumed runtime should expose it like
+this:
+
+- active history gets a short preview message
+- that preview includes the blob path
+- the full body stays on disk
+- the agent can use the normal `read` tool only if the full text is truly needed
+
+So the resumed message should look more like:
+
+```text
+[Large content stored outside active session context]
+Blob path: /repo/.mini-claw/sessions/sess_xxx/blobs/msg_0001.txt
+Preview: Wrote chapter 42 and saved it to outputs/chapter_042.md
+Use the read tool only if the full body is needed.
+```
+
+This is a much better operational model than silently reinflating huge text
+into chat history.
+
+It keeps the runtime honest:
+
+- the working history stays small
+- the full body remains available
+- the agent can deliberately pull it back in when necessary
+
+That is the correct tradeoff for a harness runtime.
 
 ## Recommended storage layout
 
@@ -540,9 +581,10 @@ A good resume flow should do this:
 
 1. load the operational snapshot
 2. restore durable runtime state
-3. rebuild a fresh harness runtime
-4. inject a fresh system prompt
-5. continue from restored working conversation state
+3. rebuild preview-only blob references in active history
+4. rebuild a fresh harness runtime
+5. inject a fresh system prompt
+6. continue from restored working conversation state
 
 That means resume is not:
 
@@ -558,10 +600,38 @@ That distinction makes the design robust.
 flowchart LR
     Disk["session.json + blobs"] --> Load["load operational snapshot"]
     Load --> Restore["restore messages / todos / audit / usage"]
-    Restore --> Rebuild["rebuild fresh HarnessAgent"]
+    Restore --> Preview["inflate previews, not full blobs"]
+    Preview --> Rebuild["rebuild fresh HarnessAgent"]
     Rebuild --> Prompt["inject fresh system prompt"]
     Prompt --> Continue["continue session"]
 ```
+
+## Blob access during a resumed session
+
+The runtime should make blob access explicit:
+
+```mermaid
+sequenceDiagram
+    participant Session as Session Store
+    participant Agent as HarnessAgent
+    participant Disk as blobs/msg_xxx.txt
+    participant Tool as read tool
+
+    Session->>Agent: restore preview + blob path
+    Note over Agent: active history stays small
+    Agent->>Tool: read(blob_path) only if needed
+    Tool->>Disk: open blob file
+    Disk-->>Tool: full text
+    Tool-->>Agent: full text as tool result
+```
+
+That means blob access is:
+
+- explicit
+- tool-mediated
+- visible in audit/tool history
+
+instead of being a hidden eager restore.
 
 ## Save flow with compaction
 
@@ -719,6 +789,8 @@ The key design rules are:
 - never persist the injected system prompt
 - separate operational snapshot from optional archive
 - leave room for blob offloading of large message bodies
+- restore blob previews by default instead of eagerly inflating full bodies
+- expose full blob content through explicit runtime access such as `read`
 - autosave only at safe turn boundaries first
 - restore durable state, then rebuild a fresh runtime on resume
 - keep the first implementation flat in `session.py`

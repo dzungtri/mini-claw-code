@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 SESSION_VERSION = 1
 DEFAULT_SESSION_TITLE = "Untitled session"
+BLOB_REFERENCE_OPEN = "[Large content stored outside active session context]"
 
 
 @dataclass(slots=True)
@@ -153,13 +154,23 @@ class SessionStore:
         agent: "HarnessAgent",
         record: SessionRecord,
     ) -> list[Message]:
-        messages = deserialize_messages(record.messages, session_dir=self.session_dir(record.id))
+        messages = deserialize_messages(
+            record.messages,
+            session_dir=self.session_dir(record.id),
+            inflate_blobs=False,
+        )
         agent.restore_runtime_state(
             todos=list(record.todos),
             audit_entries=list(record.audit_log),
             token_usage=list(record.token_usage),
         )
         return messages
+
+    def blob_path(self, session_id: str, content_ref: str) -> Path:
+        return (self.session_dir(session_id) / content_ref).resolve()
+
+    def read_blob(self, session_id: str, content_ref: str) -> str:
+        return self.blob_path(session_id, content_ref).read_text(encoding="utf-8")
 
     def _write_record(self, record: SessionRecord) -> None:
         path = self.session_dir(record.id) / "session.json"
@@ -252,23 +263,44 @@ def deserialize_messages(
     records: list[dict[str, Any]],
     *,
     session_dir: Path,
+    inflate_blobs: bool = False,
 ) -> list[Message]:
     messages: list[Message] = []
     for record in records:
         kind = str(record.get("kind", ""))
         if kind == "user":
-            messages.append(Message.user(_deserialize_text_payload(record, session_dir=session_dir)))
+            messages.append(
+                Message.user(
+                    _deserialize_text_payload(
+                        record,
+                        session_dir=session_dir,
+                        inflate_blobs=inflate_blobs,
+                    )
+                )
+            )
             continue
         if kind == "tool_result":
             messages.append(
                 Message.tool_result(
                     str(record.get("tool_call_id", "")),
-                    _deserialize_text_payload(record, session_dir=session_dir),
+                    _deserialize_text_payload(
+                        record,
+                        session_dir=session_dir,
+                        inflate_blobs=inflate_blobs,
+                    ),
                 )
             )
             continue
         if kind == "system":
-            messages.append(Message.system(_deserialize_text_payload(record, session_dir=session_dir)))
+            messages.append(
+                Message.system(
+                    _deserialize_text_payload(
+                        record,
+                        session_dir=session_dir,
+                        inflate_blobs=inflate_blobs,
+                    )
+                )
+            )
             continue
         if kind == "assistant":
             tool_calls = [
@@ -280,7 +312,11 @@ def deserialize_messages(
                 for raw in _coerce_list_of_dicts(record.get("tool_calls"))
             ]
             stop_reason = StopReason(str(record.get("stop_reason", StopReason.STOP.value)))
-            text = _deserialize_text_payload(record, session_dir=session_dir)
+            text = _deserialize_text_payload(
+                record,
+                session_dir=session_dir,
+                inflate_blobs=inflate_blobs,
+            )
             messages.append(
                 Message.assistant(
                     AssistantTurn(
@@ -319,13 +355,24 @@ def _serialize_text_payload(
     }
 
 
-def _deserialize_text_payload(record: dict[str, Any], *, session_dir: Path) -> str:
+def _deserialize_text_payload(
+    record: dict[str, Any],
+    *,
+    session_dir: Path,
+    inflate_blobs: bool,
+) -> str:
     inline = record.get("content")
     if isinstance(inline, str):
         return inline
     ref = record.get("content_ref")
     if isinstance(ref, str) and ref:
-        return (session_dir / ref).read_text(encoding="utf-8")
+        if inflate_blobs:
+            return (session_dir / ref).read_text(encoding="utf-8")
+        preview = record.get("preview")
+        return _render_blob_reference(
+            blob_path=(session_dir / ref).resolve(),
+            preview=preview if isinstance(preview, str) else "",
+        )
     return ""
 
 
@@ -334,6 +381,17 @@ def _preview_text(text: str, limit: int = 120) -> str:
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: limit - 3].rstrip() + "..."
+
+
+def _render_blob_reference(*, blob_path: Path, preview: str) -> str:
+    lines = [
+        BLOB_REFERENCE_OPEN,
+        f"Blob path: {blob_path}",
+    ]
+    if preview:
+        lines.append(f"Preview: {preview}")
+    lines.append("Use the read tool only if the full body is needed.")
+    return "\n".join(lines)
 
 
 def _is_injected_system_prompt(message: Message) -> bool:

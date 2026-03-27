@@ -51,6 +51,7 @@ from .prompts import DEFAULT_PLAN_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLAT
 from .skills import SkillRegistry
 from .streaming import StreamDone, StreamProvider, TextDelta
 from .subagent import SubagentTool, render_harness_subagent_prompt_section
+from .session import BLOB_REFERENCE_OPEN
 from .tool_universe import (
     DeferredToolRegistry,
     ToolSearchTool,
@@ -857,6 +858,7 @@ class HarnessAgent:
             and messages[0].kind == "system"
             and isinstance(messages[0].content, str)
             and not messages[0].content.strip().startswith(ARCHIVED_CONTEXT_OPEN)
+            and not messages[0].content.strip().startswith(BLOB_REFERENCE_OPEN)
         ):
             messages[0] = system
         else:

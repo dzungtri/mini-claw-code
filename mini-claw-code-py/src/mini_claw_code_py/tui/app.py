@@ -272,6 +272,7 @@ async def _resume_session(
     current_session = record
     plan_mode = False
     ui.print_resumed_session(record)
+    ui.print_history_preview(history)
     return True, agent, current_session, history, plan_mode
 
 
