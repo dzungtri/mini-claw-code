@@ -608,13 +608,23 @@ Good first commands:
 - `/session`
   - show current session id and title
 - `/sessions`
-  - list recent sessions
+  - list recent sessions and allow immediate selection
 - `/resume <id>`
   - load a previous session
 - `/new`
   - start a fresh session
 
 That is enough for the first implementation.
+
+The nice UX detail is that `/sessions` should not just dump ids.
+
+It should behave like a lightweight selector:
+
+- show numbered recent sessions
+- allow typing a row number or a raw session id
+- resume immediately without forcing a second command
+
+That keeps the interaction simple while still feeling like a real terminal app.
 
 You do not need all of these yet:
 
