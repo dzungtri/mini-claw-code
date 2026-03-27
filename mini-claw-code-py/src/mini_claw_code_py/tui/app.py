@@ -1,0 +1,281 @@
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+from mini_claw_code_py import (
+    ChannelInputHandler,
+    DEFAULT_PLAN_PROMPT_TEMPLATE,
+    DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+    HarnessAgent,
+    Message,
+    OpenRouterProvider,
+    SYSTEM_PROMPT_FILE_ENV,
+    SessionRecord,
+    SessionStore,
+    UserInputRequest,
+    apply_harness_config,
+    default_harness_config,
+    load_prompt_template,
+    render_system_prompt,
+)
+
+from .console import ConsoleUI
+
+
+def build_agent(
+    provider: OpenRouterProvider,
+    *,
+    cwd: Path,
+    input_queue: "asyncio.Queue[UserInputRequest]",
+) -> HarnessAgent:
+    system_prompt = render_system_prompt(
+        load_prompt_template(
+            SYSTEM_PROMPT_FILE_ENV,
+            DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+        ),
+        cwd=cwd,
+    )
+    plan_prompt = render_system_prompt(
+        DEFAULT_PLAN_PROMPT_TEMPLATE,
+        cwd=cwd,
+    )
+    agent = HarnessAgent(provider).system_prompt(system_prompt).plan_prompt(plan_prompt)
+    config = default_harness_config(cwd=cwd, home=Path.home())
+    apply_harness_config(
+        agent,
+        config,
+        handler=ChannelInputHandler(input_queue),
+    )
+    return agent
+
+
+async def run_cli(*, cwd: Path | None = None) -> None:
+    provider = OpenRouterProvider.from_env()
+    workspace = (cwd or Path.cwd()).resolve()
+    input_queue: asyncio.Queue[UserInputRequest] = asyncio.Queue()
+    store = SessionStore(workspace / ".mini-claw" / "sessions")
+    ui = ConsoleUI()
+
+    agent = build_agent(provider, cwd=workspace, input_queue=input_queue)
+    current_session = store.create(cwd=workspace)
+    history: list[Message] = []
+    plan_mode = False
+
+    ui.print_banner(cwd=str(workspace), session_id=current_session.id)
+
+    while True:
+        ui.drain_notice_queue(agent.notice_queue())
+        try:
+            prompt = ui.read_prompt(plan_mode=plan_mode)
+        except EOFError:
+            await _shutdown(agent, ui)
+            return
+
+        if not prompt:
+            continue
+
+        if prompt.startswith("/"):
+            handled, agent, current_session, history, plan_mode = await _handle_command(
+                prompt=prompt,
+                provider=provider,
+                workspace=workspace,
+                input_queue=input_queue,
+                store=store,
+                agent=agent,
+                current_session=current_session,
+                history=history,
+                plan_mode=plan_mode,
+                ui=ui,
+            )
+            if handled:
+                if prompt in {"/quit", "/exit"}:
+                    return
+                continue
+
+        if not plan_mode and agent.todo_board().all_completed():
+            agent.todo_board().clear()
+        history.append(Message.user(prompt))
+
+        if plan_mode:
+            approved, agent, current_session, history = await _run_plan_cycle(
+                agent=agent,
+                current_session=current_session,
+                history=history,
+                input_queue=input_queue,
+                store=store,
+                ui=ui,
+            )
+            if approved:
+                continue
+            continue
+
+        event_queue: asyncio.Queue[object] = asyncio.Queue()
+        worker = asyncio.create_task(agent.execute(history, event_queue))
+        await ui.run_agent_stream(event_queue, input_queue, spinner_label="Executing")
+        await worker
+        current_session = _save_session(store, current_session, history, agent)
+
+
+async def _handle_command(
+    *,
+    prompt: str,
+    provider: OpenRouterProvider,
+    workspace: Path,
+    input_queue: "asyncio.Queue[UserInputRequest]",
+    store: SessionStore,
+    agent: HarnessAgent,
+    current_session: SessionRecord,
+    history: list[Message],
+    plan_mode: bool,
+    ui: ConsoleUI,
+) -> tuple[bool, HarnessAgent, SessionRecord, list[Message], bool]:
+    if prompt in {"/quit", "/exit"}:
+        await _shutdown(agent, ui)
+        return True, agent, current_session, history, plan_mode
+    if prompt == "/help":
+        ui.print_help()
+        return True, agent, current_session, history, plan_mode
+    if prompt == "/plan":
+        plan_mode = not plan_mode
+        ui.print_mode_change(plan_mode=plan_mode)
+        return True, agent, current_session, history, plan_mode
+    if prompt in {"/status", "/todos"}:
+        ui.print_runtime_status(agent, plan_mode=plan_mode)
+        return True, agent, current_session, history, plan_mode
+    if prompt == "/session":
+        ui.print_session_status(current_session)
+        return True, agent, current_session, history, plan_mode
+    if prompt == "/sessions":
+        records = ui.print_session_list(store)
+        if not records:
+            return True, agent, current_session, history, plan_mode
+        session_id = ui.read_session_selection(records)
+        if session_id is None:
+            return True, agent, current_session, history, plan_mode
+        return await _resume_session(
+            session_id=session_id,
+            provider=provider,
+            input_queue=input_queue,
+            store=store,
+            agent=agent,
+            current_session=current_session,
+            history=history,
+            plan_mode=plan_mode,
+            ui=ui,
+        )
+    if prompt == "/audit":
+        ui.print_audit_log(agent)
+        return True, agent, current_session, history, plan_mode
+    if prompt == "/new":
+        await agent.flush_memory_updates()
+        ui.drain_notice_queue(agent.notice_queue())
+        agent = build_agent(provider, cwd=workspace, input_queue=input_queue)
+        history = []
+        current_session = store.create(cwd=workspace)
+        plan_mode = False
+        ui.print_started_session(current_session.id)
+        return True, agent, current_session, history, plan_mode
+    if prompt.startswith("/resume"):
+        parts = prompt.split(maxsplit=1)
+        if len(parts) != 2:
+            ui.print_usage("/resume <session_id>")
+            return True, agent, current_session, history, plan_mode
+        return await _resume_session(
+            session_id=parts[1].strip(),
+            provider=provider,
+            input_queue=input_queue,
+            store=store,
+            agent=agent,
+            current_session=current_session,
+            history=history,
+            plan_mode=plan_mode,
+            ui=ui,
+        )
+    if prompt.startswith("/"):
+        ui.print_unknown_command(prompt)
+        return True, agent, current_session, history, plan_mode
+    return False, agent, current_session, history, plan_mode
+
+
+async def _run_plan_cycle(
+    *,
+    agent: HarnessAgent,
+    current_session: SessionRecord,
+    history: list[Message],
+    input_queue: "asyncio.Queue[UserInputRequest]",
+    store: SessionStore,
+    ui: ConsoleUI,
+) -> tuple[bool, HarnessAgent, SessionRecord, list[Message]]:
+    while True:
+        event_queue: asyncio.Queue[object] = asyncio.Queue()
+        worker = asyncio.create_task(agent.plan(history, event_queue))
+        await ui.run_agent_stream(event_queue, input_queue, spinner_label="Planning")
+        plan_text = await worker
+        current_session = _save_session(store, current_session, history, agent)
+
+        approval = ui.read_plan_approval()
+        ui.console.print()
+
+        if approval.lower() == "y":
+            history.append(Message.user("Proceed with the approved plan."))
+            event_queue = asyncio.Queue()
+            worker = asyncio.create_task(agent.execute(history, event_queue))
+            await ui.run_agent_stream(event_queue, input_queue, spinner_label="Executing")
+            await worker
+            current_session = _save_session(store, current_session, history, agent)
+            return True, agent, current_session, history
+
+        if approval.lower() in {"n", "no"}:
+            ui.print_plan_rejected(plan_text)
+            return False, agent, current_session, history
+
+        history.append(Message.user(f"Revise the plan with this feedback: {approval}"))
+
+
+def _save_session(
+    store: SessionStore,
+    current_session: SessionRecord,
+    history: list[Message],
+    agent: HarnessAgent,
+) -> SessionRecord:
+    return store.save_runtime(
+        current_session,
+        messages=history,
+        todos=agent.todo_board().items(),
+        audit_entries=agent.audit_log().entries(),
+        token_usage=agent.token_usage_tracker().turns(),
+    )
+
+
+async def _resume_session(
+    *,
+    session_id: str,
+    provider: OpenRouterProvider,
+    input_queue: "asyncio.Queue[UserInputRequest]",
+    store: SessionStore,
+    agent: HarnessAgent,
+    current_session: SessionRecord,
+    history: list[Message],
+    plan_mode: bool,
+    ui: ConsoleUI,
+) -> tuple[bool, HarnessAgent, SessionRecord, list[Message], bool]:
+    try:
+        record = store.load(session_id)
+    except FileNotFoundError:
+        ui.print_unknown_session(session_id)
+        return True, agent, current_session, history, plan_mode
+    await agent.flush_memory_updates()
+    ui.drain_notice_queue(agent.notice_queue())
+    agent = build_agent(provider, cwd=record.cwd, input_queue=input_queue)
+    history = store.restore_into_agent(agent, record)
+    current_session = record
+    plan_mode = False
+    ui.print_resumed_session(record)
+    return True, agent, current_session, history, plan_mode
+
+
+async def _shutdown(agent: HarnessAgent, ui: ConsoleUI) -> None:
+    await agent.flush_memory_updates()
+    ui.drain_notice_queue(agent.notice_queue())
+    ui.console.print()

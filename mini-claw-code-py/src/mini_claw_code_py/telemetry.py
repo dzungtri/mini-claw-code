@@ -49,6 +49,21 @@ class TokenUsageTracker:
     def turns(self) -> list[TokenUsageSnapshot]:
         return list(self._turns)
 
+    def replace(self, turns: list[TokenUsageSnapshot | dict[str, int]]) -> None:
+        snapshots: list[TokenUsageSnapshot] = []
+        for turn in turns:
+            if isinstance(turn, TokenUsageSnapshot):
+                snapshots.append(turn)
+                continue
+            snapshots.append(
+                TokenUsageSnapshot(
+                    turn_index=int(turn.get("turn_index", len(snapshots) + 1)),
+                    prompt_tokens=int(turn.get("prompt_tokens", 0)),
+                    completion_tokens=int(turn.get("completion_tokens", 0)),
+                )
+            )
+        self._turns = snapshots
+
     def total_prompt_tokens(self) -> int:
         return sum(turn.prompt_tokens for turn in self._turns)
 

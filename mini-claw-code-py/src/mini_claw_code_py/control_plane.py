@@ -90,6 +90,18 @@ class AuditLog:
     def push(self, kind: str, message: str) -> None:
         self._entries.append(AuditEntry(kind=kind, message=message))
 
+    def replace(self, entries: list[AuditEntry | dict[str, str]]) -> None:
+        self._entries.clear()
+        for entry in entries:
+            if isinstance(entry, AuditEntry):
+                self._entries.append(entry)
+                continue
+            kind = entry.get("kind", "").strip()
+            message = entry.get("message", "").strip()
+            if not kind or not message:
+                continue
+            self._entries.append(AuditEntry(kind=kind, message=message))
+
     def entries(self) -> list[AuditEntry]:
         return list(self._entries)
 

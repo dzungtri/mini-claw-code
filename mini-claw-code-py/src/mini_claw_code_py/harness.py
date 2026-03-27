@@ -6,17 +6,19 @@ from pathlib import Path
 from typing import Mapping
 
 from .control_plane import (
+    AuditEntry,
     AuditLog,
-    control_plane_profile,
     ControlPlaneSettings,
     approval_message_for_tool,
     classify_loop,
+    control_plane_profile,
     is_mutating_tool,
     is_verification_tool,
     render_control_plane_prompt_section,
     tool_call_signature,
 )
 from .context import (
+    ARCHIVED_CONTEXT_OPEN,
     ContextCompactionSettings,
     compact_message_history,
     render_context_durability_prompt_section,
@@ -55,8 +57,9 @@ from .tool_universe import (
     render_tool_universe_prompt_section,
     tool_universe_status_summary,
 )
-from .todos import TodoBoard, WriteTodosTool, render_todo_prompt_section
+from .todos import TodoBoard, TodoItem, WriteTodosTool, render_todo_prompt_section
 from .telemetry import (
+    TokenUsageSnapshot,
     TokenUsageTracker,
     estimate_assistant_turn_tokens,
     estimate_messages_tokens,
@@ -541,6 +544,18 @@ class HarnessAgent:
     def token_usage_tracker(self) -> TokenUsageTracker:
         return self._token_usage_tracker
 
+    def restore_runtime_state(
+        self,
+        *,
+        todos: list[TodoItem | dict[str, str] | str] | None = None,
+        audit_entries: list[AuditEntry | dict[str, str]] | None = None,
+        token_usage: list[TokenUsageSnapshot | dict[str, int]] | None = None,
+    ) -> "HarnessAgent":
+        self._todo_board.replace([] if todos is None else list(todos))
+        self._audit_log.replace([] if audit_entries is None else list(audit_entries))
+        self._token_usage_tracker.replace([] if token_usage is None else list(token_usage))
+        return self
+
     async def plan(
         self,
         messages: list[Message],
@@ -837,7 +852,12 @@ class HarnessAgent:
     @staticmethod
     def _set_system_prompt(messages: list[Message], prompt: str) -> None:
         system = Message.system(prompt)
-        if messages and messages[0].kind == "system":
+        if (
+            messages
+            and messages[0].kind == "system"
+            and isinstance(messages[0].content, str)
+            and not messages[0].content.strip().startswith(ARCHIVED_CONTEXT_OPEN)
+        ):
             messages[0] = system
         else:
             messages.insert(0, system)
