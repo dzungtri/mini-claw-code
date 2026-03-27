@@ -200,6 +200,7 @@ async def main() -> None:
         .enable_context_durability()
         .enable_subagents(max_parallel_subagents=2)
         .enable_default_mcp(cwd=cwd)
+        .enable_tool_universe_management()
         .enable_default_skills(cwd)
     )
 

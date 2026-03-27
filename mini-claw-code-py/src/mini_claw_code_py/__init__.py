@@ -49,6 +49,14 @@ from .subagent import (
     render_harness_subagent_prompt_section,
     render_subagent_prompt_section,
 )
+from .tool_universe import (
+    DeferredToolEntry,
+    DeferredToolRegistry,
+    TOOL_UNIVERSE_PROMPT_SECTION,
+    ToolSearchTool,
+    render_tool_universe_prompt_section,
+    tool_universe_status_summary,
+)
 from .todos import TODO_STATUSES, TodoBoard, TodoItem, WriteTodosTool, render_todo_prompt_section
 from .streaming import (
     MockStreamProvider,
@@ -145,11 +153,15 @@ __all__ = [
     "SubagentTool",
     "TextDelta",
     "TODO_STATUSES",
+    "TOOL_UNIVERSE_PROMPT_SECTION",
     "ToolCall",
     "ToolCallDelta",
     "ToolCallStart",
     "ToolDefinition",
+    "ToolSearchTool",
     "ToolSet",
+    "DeferredToolEntry",
+    "DeferredToolRegistry",
     "TodoBoard",
     "TodoItem",
     "UPLOADS_PREFIX",
@@ -178,6 +190,7 @@ __all__ = [
     "render_memory_prompt_section",
     "render_subagent_prompt_section",
     "render_todo_prompt_section",
+    "render_tool_universe_prompt_section",
     "render_harness_subagent_prompt_section",
     "render_system_prompt",
     "render_workspace_prompt_section",
@@ -188,6 +201,7 @@ __all__ = [
     "single_turn",
     "should_consider_memory_update",
     "update_memory_file",
+    "tool_universe_status_summary",
     "validate_bash_command",
     "WriteTodosTool",
 ]

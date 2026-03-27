@@ -29,13 +29,13 @@ It is about capability at scale.
 
 ## What you will build
 
-This chapter defines the next harness capability:
+This chapter now implements the next harness capability:
 
-1. a split between built-in tools and the wider tool universe
-2. a strategy for progressive exposure of large tool catalogs
-3. the role of skills and MCP in that larger tool world
-4. why deferred tool discovery belongs to the harness
-5. a clean path for the Python project to add this later
+1. a split between always-visible bundled tools and deferred external tools
+2. a `tool_search` helper for discovering and activating deferred tools
+3. a runtime notice that makes the tool universe visible in the CLI
+4. a concrete first use of MCP as deferred external tools
+5. a clean path to grow this later without changing the harness shape again
 
 The architectural boundary is:
 
@@ -220,6 +220,68 @@ The harness should decide:
 
 That is much cleaner than scattering the logic across many adapters.
 
+## The Python implementation in this chapter
+
+The Python harness now implements a first real slice of this design.
+
+The runtime shape is:
+
+```text
+HarnessAgent
+├── bundled core tools
+├── skill catalog metadata
+├── optional MCP registry
+└── deferred external tools + tool_search
+```
+
+The key design choice is:
+
+- bundled tools stay visible
+- MCP tools may be deferred
+- `tool_search` becomes the bridge between the active tool set and the wider catalog
+
+That keeps the runtime small without losing access to the larger tool universe.
+
+## `tool_search`
+
+The first built-in discovery helper is:
+
+```text
+tool_search(query="...")
+```
+
+Its job is simple:
+
+1. search deferred external tools by capability words
+2. show matching tool names and descriptions
+3. activate selected tools for the current run
+
+The activation flow is:
+
+```text
+tool_search("docs")
+-> see matching tools
+tool_search("select:docs_lookup")
+-> selected tools become callable in the next turn
+```
+
+This is intentionally simple.
+
+The tutorial runtime does not need a huge plugin host to teach the core idea.
+
+## Why MCP is the first deferred layer
+
+MCP is already the largest external catalog in the current project.
+
+So Chapter 23 uses MCP as the first deferred tool family:
+
+- when tool-universe management is off, MCP tools are exposed eagerly
+- when it is on, MCP tools are registered as deferred external tools instead
+- the model sees `tool_search`, not every MCP schema up front
+
+That gives the harness a real scaling behavior without changing the rest of the
+agent loop.
+
 ## A good first mental model for the Python project
 
 The lightweight Python project does not need to implement the whole external
@@ -227,7 +289,7 @@ tool universe immediately.
 
 But it should still define the right model now.
 
-The simplest future direction is:
+The runtime API now looks like:
 
 ```text
 HarnessAgent
@@ -235,6 +297,17 @@ HarnessAgent
 ├── skill catalog
 ├── optional MCP registry
 └── deferred tool discovery helper
+```
+
+And the first concrete builder method is:
+
+```python
+agent = (
+    HarnessAgent(provider)
+    .enable_core_tools(handler)
+    .enable_default_mcp(cwd=Path.cwd())
+    .enable_tool_universe_management()
+)
 ```
 
 That keeps the architecture easy to explain.
@@ -336,16 +409,17 @@ This belongs to the runtime layer.
 
 The Python project should stay explainable.
 
-## A realistic first milestone
+## What the runtime now does
 
-The first concrete implementation milestone after this chapter should be:
+The current Python implementation now makes this concrete:
 
-1. keep bundled tools as the stable always-visible layer
-2. define an external tool registry boundary
-3. add a deferred-discovery concept for larger catalogs
-4. prepare the runtime for MCP integration
+1. bundled tools remain the stable always-visible layer
+2. the harness can build a deferred external-tool registry
+3. `tool_search` can search and activate deferred tools during a run
+4. MCP becomes the first deferred external-tool family
+5. the CLI gets a `Tool universe ready: ...` notice so the user can see that this layer exists
 
-That is enough to give the harness a scalable capability model.
+That is enough to give the harness a scalable first capability model.
 
 ## Recap
 

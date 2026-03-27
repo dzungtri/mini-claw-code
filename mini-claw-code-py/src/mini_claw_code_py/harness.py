@@ -23,6 +23,12 @@ from .prompts import DEFAULT_PLAN_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLAT
 from .skills import SkillRegistry
 from .streaming import StreamDone, StreamProvider, TextDelta
 from .subagent import SubagentTool, render_harness_subagent_prompt_section
+from .tool_universe import (
+    DeferredToolRegistry,
+    ToolSearchTool,
+    render_tool_universe_prompt_section,
+    tool_universe_status_summary,
+)
 from .todos import TodoBoard, WriteTodosTool, render_todo_prompt_section
 from .tools import AskTool, BashTool, EditTool, InputHandler, ReadTool, WriteTool
 from .types import Message, Provider, StopReason, ToolDefinition, ToolSet
@@ -67,6 +73,7 @@ class HarnessAgent:
         self._background_notice_queue: "asyncio.Queue[AgentNotice]" = asyncio.Queue()
         self._workspace_config: WorkspaceConfig | None = None
         self._mcp_registry: MCPRegistry | None = None
+        self._skill_registry: SkillRegistry | None = None
         self._todo_board = TodoBoard()
         self._core_tools_enabled = False
         self._ask_tool_enabled = False
@@ -80,6 +87,8 @@ class HarnessAgent:
         self._context_durability_enabled = False
         self._context_prompt_enabled = False
         self._context_settings = ContextCompactionSettings()
+        self._tool_universe_enabled = False
+        self._tool_universe_prompt_enabled = False
         self.plan_system_prompt = DEFAULT_PLAN_PROMPT_TEMPLATE
         self.execution_system_prompt = DEFAULT_SYSTEM_PROMPT_TEMPLATE
         self.exit_plan_def = ToolDefinition.new(
@@ -235,7 +244,9 @@ class HarnessAgent:
         return self
 
     def enable_default_skills(self, cwd: Path | None = None) -> "HarnessAgent":
-        section = SkillRegistry.discover_default(cwd=Path.cwd() if cwd is None else cwd).prompt_section()
+        registry = SkillRegistry.discover_default(cwd=Path.cwd() if cwd is None else cwd)
+        self._skill_registry = registry
+        section = registry.prompt_section()
         if not section:
             return self
 
@@ -250,6 +261,17 @@ class HarnessAgent:
             cwd=target_cwd,
             extra_sections=[section],
         )
+        return self
+
+    def enable_tool_universe_management(self) -> "HarnessAgent":
+        self._tool_universe_enabled = True
+        if not self._tool_universe_prompt_enabled:
+            section = render_tool_universe_prompt_section()
+            self.execution_system_prompt = _append_prompt_section(
+                self.execution_system_prompt,
+                section,
+            )
+            self._tool_universe_prompt_enabled = True
         return self
 
     def enable_subagents(
@@ -432,17 +454,22 @@ class HarnessAgent:
     ) -> str:
         async with AsyncExitStack() as stack:
             runtime_tools = self.tools.copy()
+            deferred_registry = DeferredToolRegistry()
             mcp_summary: str | None = None
             if allowed is None and self._mcp_registry is not None and self._mcp_registry.all():
                 adapter = await stack.enter_async_context(MCPToolAdapter(self._mcp_registry))
                 mcp_summary = adapter.status_summary()
-                for tool in adapter.tools():
-                    runtime_tools.push(tool)
+                if self._tool_universe_enabled:
+                    for tool in adapter.tools():
+                        deferred_registry.register(tool, source="mcp")
+                    runtime_tools.push(ToolSearchTool(deferred_registry, runtime_tools))
+                else:
+                    for tool in adapter.tools():
+                        runtime_tools.push(tool)
 
-            all_defs = runtime_tools.definitions()
-            defs = [definition for definition in all_defs if allowed is None or definition.name in allowed]
-            if allowed is not None:
-                defs.append(self.exit_plan_def)
+            built_in_count = len(self.tools.definitions())
+            deferred_count = deferred_registry.count()
+            skill_count = len(self._skill_registry.all()) if self._skill_registry is not None else 0
 
             memory_summary = self._memory_registry.status_summary()
             if memory_summary:
@@ -465,8 +492,22 @@ class HarnessAgent:
             if mcp_summary:
                 await events.put(AgentNotice(mcp_summary))
 
+            if allowed is None and self._tool_universe_enabled:
+                await events.put(
+                    AgentNotice(
+                        tool_universe_status_summary(
+                            built_in_count=built_in_count,
+                            skill_count=skill_count,
+                            deferred_count=deferred_count,
+                        )
+                    )
+                )
+
             if allowed is not None:
-                allowed_tools = ", ".join(sorted(definition.name for definition in defs))
+                allowed_tools = ", ".join(
+                    sorted(definition.name for definition in runtime_tools.definitions() if definition.name in allowed)
+                )
+                allowed_tools = f"{allowed_tools}, exit_plan" if allowed_tools else "exit_plan"
                 await events.put(
                     AgentNotice(
                         "Planning mode active: external writes and subagents are blocked. "
@@ -475,6 +516,11 @@ class HarnessAgent:
                 )
 
             while True:
+                all_defs = runtime_tools.definitions()
+                defs = [definition for definition in all_defs if allowed is None or definition.name in allowed]
+                if allowed is not None:
+                    defs.append(self.exit_plan_def)
+
                 compaction = self._maybe_compact_messages(messages)
                 if compaction is not None:
                     await events.put(AgentNotice(compaction.notice()))
