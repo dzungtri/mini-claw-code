@@ -190,16 +190,48 @@ async def test_ch15_plan_agent_can_call_mcp_tool_from_config(tmp_path: Path) -> 
     project.mkdir(parents=True)
     server_script = project / "demo_mcp_server.py"
     server_script.write_text(
-        """from fastmcp import FastMCP
+        """import asyncio
 
-mcp = FastMCP("Demo Server")
+from mcp import types
+from mcp.server.lowlevel import Server
+from mcp.server.stdio import stdio_server
 
-@mcp.tool
-def greet(name: str) -> str:
-    return f"Hello, {name}!"
+
+app = Server("Demo Server")
+
+
+@app.list_tools()
+async def list_tools() -> list[types.Tool]:
+    return [
+        types.Tool(
+            name="greet",
+            description="Return a greeting.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                },
+                "required": ["name"],
+            },
+        )
+    ]
+
+
+@app.call_tool()
+async def call_tool(name: str, arguments: dict[str, object]) -> list[types.TextContent]:
+    if name != "greet":
+        raise ValueError(f"unknown tool: {name}")
+    person = str(arguments.get("name", ""))
+    return [types.TextContent(type="text", text=f"Hello, {person}!")]
+
+
+async def main() -> None:
+    async with stdio_server() as (read_stream, write_stream):
+        await app.run(read_stream, write_stream, app.create_initialization_options())
+
 
 if __name__ == "__main__":
-    mcp.run()
+    asyncio.run(main())
 """,
         encoding="utf-8",
     )

@@ -3,11 +3,17 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import AsyncIterator, Iterable, Mapping
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 
-from fastmcp import Client
+import httpx
+from mcp import ClientSession, StdioServerParameters, types as mcp_types
+from mcp.client.sse import sse_client
+from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamable_http_client
 
 from .types import JSONValue, ToolDefinition
 
@@ -176,8 +182,8 @@ class MCPRegistry:
 
 
 class MCPToolProxy:
-    def __init__(self, client: Client, definition: ToolDefinition) -> None:
-        self._client = client
+    def __init__(self, session: ClientSession, definition: ToolDefinition) -> None:
+        self._session = session
         self._definition = definition
 
     @property
@@ -186,34 +192,39 @@ class MCPToolProxy:
 
     async def call(self, args: JSONValue) -> str:
         arguments = args if isinstance(args, dict) else {}
-        result = await self._client.call_tool(self._definition.name, arguments)
+        result = await self._session.call_tool(self._definition.name, arguments)
         return _stringify_tool_result(result)
 
 
 class MCPToolAdapter:
     def __init__(self, registry: MCPRegistry) -> None:
         self.registry = registry
-        self._client: Client | None = None
+        self._stack: AsyncExitStack | None = None
         self._tools: list[MCPToolProxy] = []
 
     async def __aenter__(self) -> "MCPToolAdapter":
         if not self.registry.all():
             return self
 
-        client = Client(self.registry.to_config())
-        await client.__aenter__()
-        self._client = client
-        listed = await client.list_tools()
-        self._tools = [
-            MCPToolProxy(client, _tool_definition_from_mcp(tool))
-            for tool in listed
-        ]
+        stack = AsyncExitStack()
+        await stack.__aenter__()
+
+        try:
+            for server in self.registry.all():
+                session = await _open_mcp_session(stack, server)
+                for tool in await _list_all_tools(session):
+                    self._tools.append(MCPToolProxy(session, _tool_definition_from_mcp(tool)))
+        except BaseException as exc:
+            await stack.__aexit__(type(exc), exc, exc.__traceback__)
+            raise
+
+        self._stack = stack
         return self
 
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
-        if self._client is not None:
-            await self._client.__aexit__(exc_type, exc, tb)
-            self._client = None
+        if self._stack is not None:
+            await self._stack.__aexit__(exc_type, exc, tb)
+            self._stack = None
         self._tools = []
 
     def tools(self) -> list[MCPToolProxy]:
@@ -400,12 +411,96 @@ def _optional_string_mapping(
     return result
 
 
-def _tool_definition_from_mcp(tool: Any) -> ToolDefinition:
-    name = getattr(tool, "name")
-    description = getattr(tool, "description", "") or ""
-    schema = getattr(tool, "inputSchema", None)
-    if schema is None:
-        schema = getattr(tool, "input_schema", None)
+async def _open_mcp_session(stack: AsyncExitStack, server: MCPServer) -> ClientSession:
+    read_stream, write_stream = await _open_transport(stack, server)
+    session = ClientSession(read_stream, write_stream)
+    await stack.enter_async_context(session)
+    await session.initialize()
+    return session
+
+
+async def _list_all_tools(session: ClientSession) -> list[mcp_types.Tool]:
+    tools: list[mcp_types.Tool] = []
+    cursor: str | None = None
+    while True:
+        result = await session.list_tools(cursor=cursor)
+        tools.extend(result.tools)
+        cursor = result.nextCursor
+        if cursor is None:
+            return tools
+
+
+@asynccontextmanager
+async def _server_transport(
+    server: MCPServer,
+) -> AsyncIterator[tuple[Any, Any]]:
+    params = _build_server_params(server)
+
+    if server.transport == "stdio":
+        async with stdio_client(
+            StdioServerParameters(
+                command=params["command"],
+                args=params["args"],
+                env=params.get("env"),
+                cwd=params["cwd"],
+            )
+        ) as streams:
+            yield streams
+        return
+
+    if server.transport == "http":
+        async with httpx.AsyncClient(
+            headers=params.get("headers"),
+            timeout=httpx.Timeout(30.0, read=300.0),
+        ) as client:
+            async with streamable_http_client(params["url"], http_client=client) as streams:
+                read_stream, write_stream, _session_id = streams
+                yield read_stream, write_stream
+        return
+
+    if server.transport == "sse":
+        async with sse_client(params["url"], headers=params.get("headers")) as streams:
+            yield streams
+        return
+
+    raise ValueError(f"unsupported transport: {server.transport}")
+
+
+async def _open_transport(
+    stack: AsyncExitStack,
+    server: MCPServer,
+) -> tuple[Any, Any]:
+    read_stream, write_stream = await stack.enter_async_context(_server_transport(server))
+    return read_stream, write_stream
+
+
+def _build_server_params(server: MCPServer) -> dict[str, Any]:
+    params: dict[str, Any] = {"transport": server.transport}
+
+    if server.transport == "stdio":
+        if server.command is None:
+            raise ValueError(f"MCP server '{server.name}' requires 'command' for stdio")
+        params["command"] = server.command
+        params["args"] = list(server.args)
+        if server.env:
+            params["env"] = dict(server.env)
+        params["cwd"] = server.config_path.parent
+        return params
+
+    if server.transport in {"http", "sse"}:
+        if server.url is None:
+            raise ValueError(f"MCP server '{server.name}' requires 'url' for {server.transport}")
+        params["url"] = server.url
+        if server.headers:
+            params["headers"] = dict(server.headers)
+        return params
+
+    raise ValueError(f"MCP server '{server.name}' has unsupported transport: {server.transport}")
+
+
+def _tool_definition_from_mcp(tool: mcp_types.Tool) -> ToolDefinition:
+    description = tool.description or ""
+    schema = tool.inputSchema
     if not isinstance(schema, dict):
         schema = {"type": "object", "properties": {}, "required": []}
     else:
@@ -414,28 +509,51 @@ def _tool_definition_from_mcp(tool: Any) -> ToolDefinition:
             "properties": dict(schema.get("properties", {})),
             "required": list(schema.get("required", [])),
         }
-    return ToolDefinition(name=name, description=description, parameters=schema)
+    return ToolDefinition(name=tool.name, description=description, parameters=schema)
 
 
-def _stringify_tool_result(result: Any) -> str:
-    data = getattr(result, "data", None)
-    if isinstance(data, str):
-        return data
-    if data is not None:
+def _stringify_tool_result(result: mcp_types.CallToolResult) -> str:
+    rendered = _render_content_blocks(result.content)
+    if rendered:
+        return f"error: {rendered}" if result.isError else rendered
+
+    if result.structuredContent is not None:
         try:
-            return json.dumps(data, ensure_ascii=True, default=str)
+            rendered = json.dumps(result.structuredContent, ensure_ascii=True, default=str)
         except TypeError:
-            return str(data)
+            rendered = str(result.structuredContent)
+        return f"error: {rendered}" if result.isError else rendered
 
-    content = getattr(result, "content", None)
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            text = getattr(item, "text", None)
-            if isinstance(text, str):
-                parts.append(text)
-            else:
-                parts.append(str(item))
-        if parts:
-            return "\n".join(parts)
+    if result.isError:
+        return "error: MCP tool call failed"
     return ""
+
+
+def _render_content_blocks(content: list[mcp_types.ContentBlock]) -> str:
+    parts: list[str] = []
+    for item in content:
+        text = _render_content_block(item)
+        if text:
+            parts.append(text)
+    return "\n".join(parts)
+
+
+def _render_content_block(item: mcp_types.ContentBlock) -> str:
+    if isinstance(item, mcp_types.TextContent):
+        return item.text
+    if isinstance(item, mcp_types.ImageContent):
+        return f"[image {item.mimeType}, {len(item.data)} bytes]"
+    if isinstance(item, mcp_types.EmbeddedResource):
+        resource = item.resource
+        if isinstance(resource, mcp_types.TextResourceContents):
+            return resource.text
+        if isinstance(resource, mcp_types.BlobResourceContents):
+            mime = resource.mimeType or "application/octet-stream"
+            return f"[resource blob {mime}, {len(resource.blob)} bytes]"
+
+    if hasattr(item, "model_dump"):
+        try:
+            return json.dumps(item.model_dump(mode="json"), ensure_ascii=True, default=str)
+        except TypeError:
+            return str(item)
+    return str(item)

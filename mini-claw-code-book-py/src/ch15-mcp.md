@@ -32,13 +32,15 @@ Instead, it combines:
 - merging user and project config
 - rendering a prompt section that tells the model which MCP servers are
   configured
-- connecting to configured MCP servers with `FastMCP`
+- building transport parameters from config
+- connecting to configured MCP servers with the official Python `mcp` client
 - listing remote tools and exposing them as normal agent tools
 
 That matches the progression of the earlier chapters:
 
 - first make the runtime understand the config and capability boundary
-- then use a proven MCP client to turn that configuration into real tools
+- then use a small MCP client adapter to turn that configuration into real
+  tools
 
 ## What you will build
 
@@ -47,21 +49,28 @@ That matches the progression of the earlier chapters:
 3. environment-variable expansion for MCP config values
 4. an `MCPRegistry` that merges user and project configs
 5. a prompt section that catalogs configured MCP servers
-6. a FastMCP-backed adapter that loads MCP tools into the runtime
+6. a transport builder that maps config to stdio/http/sse clients
+7. an `mcp` SDK-backed adapter that loads MCP tools into the runtime
 
-## Why use FastMCP here?
+## Why use the `mcp` SDK here?
 
 Because this project is teaching agent architecture, not reimplementing the MCP
 wire protocol.
 
-`FastMCP` already gives you a real Python client that can:
+The official Python `mcp` package already gives you the core client pieces you
+need:
 
-- connect from local process config
-- connect from HTTP config
-- list available tools
-- call those tools with structured arguments
+- `stdio_client(...)`
+- `streamable_http_client(...)`
+- `sse_client(...)`
+- `ClientSession.initialize()`
+- `ClientSession.list_tools()`
+- `ClientSession.call_tool(...)`
 
-That makes it a strong fit for this chapter.
+That is a better fit for this chapter than `FastMCP`.
+
+You keep the transport layer small, explicit, and close to the protocol client
+you actually depend on.
 
 You still keep your own project-specific pieces:
 
@@ -74,9 +83,28 @@ You still keep your own project-specific pieces:
 So the split is:
 
 - your code owns local runtime design
-- FastMCP owns MCP transport mechanics
+- the `mcp` SDK owns MCP transport mechanics
 
 That is the right boundary.
+
+## Design lesson from Deerflow
+
+The Deerflow harness uses a useful split:
+
+- one layer normalizes server config into transport parameters
+- another layer opens client connections and loads tools
+
+That is the pattern worth copying here.
+
+The exact dependency can differ, but the architecture should stay the same.
+
+This chapter follows that lesson:
+
+- `MCPServer` and `MCPRegistry` own discovery and merge rules
+- a transport builder turns one `MCPServer` into stdio/http/sse client params
+- `MCPToolAdapter` owns connection lifecycle and tool loading
+
+That keeps the runtime easier to teach and easier to replace later.
 
 ## Why still start with config?
 
@@ -99,7 +127,8 @@ It also keeps this chapter aligned with the rest of the Python project:
 - explicit parsing
 - no hidden framework
 
-Then FastMCP can use that registry to attach real MCP tools to the harness.
+Then the adapter can use that registry to attach real MCP tools to the
+harness.
 
 ## Mental model
 
@@ -107,8 +136,9 @@ The key idea is **progressive wiring**:
 
 - the runtime first discovers MCP servers from config
 - the prompt gets a small catalog of those external integrations
-- the runtime then hands the merged config to FastMCP
-- FastMCP lists the remote tools
+- the runtime maps each server to a transport client
+- `ClientSession` initializes the connection
+- the session lists the remote tools
 - the agent exposes those remote tools through the same local tool interface
 
 ```mermaid
@@ -116,8 +146,9 @@ flowchart TD
     Config[".mcp.json"] --> Parse["parse_mcp_config(...)"]
     Parse --> Registry["MCPRegistry"]
     Registry --> Prompt["Prompt section with configured servers"]
-    Registry --> FastMCP["FastMCP Client(config)"]
-    FastMCP --> MCPTools["list_tools()"]
+    Registry --> Params["build transport params"]
+    Params --> Session["ClientSession.initialize()"]
+    Session --> MCPTools["list_tools()"]
     MCPTools --> Agent["local ToolDefinition + tool proxy"]
 ```
 
@@ -135,7 +166,7 @@ At a high level, MCP separates three concerns:
 In this project:
 
 - `mini-claw-code-py` is the host runtime
-- `FastMCP` is the client layer
+- the Python `mcp` SDK is the client layer
 - the external integration is the server
 
 The host does not call the external system directly.
@@ -266,7 +297,8 @@ also leaving room for evolving config such as OAuth metadata or helper
 commands.
 
 The dataclass also has a `to_config()` helper so the registry can rebuild a
-canonical MCP config dictionary for FastMCP.
+canonical MCP config dictionary when the runtime needs to inspect or render the
+merged configuration.
 
 ## Parsing `.mcp.json`
 
@@ -406,57 +438,62 @@ It only catalogs configured integrations honestly.
 That keeps the chapter accurate while still making MCP visible inside the
 runtime.
 
-## Connecting with FastMCP
+## Building transport params
 
-Once the runtime has a merged `MCPRegistry`, the next step is to connect.
+Once the runtime has a merged `MCPRegistry`, the next step is to map each
+server to the right transport client.
 
-FastMCP supports exactly the input shape you already have:
+This is another place where Deerflow has the right lesson.
 
-- a single server
-- a full `{"mcpServers": ...}` config dictionary
+Do not spread transport branching across the agent loop.
 
-That means the integration can stay very small:
+Build one helper that turns an `MCPServer` into the parameters the transport
+expects.
+
+That means:
+
+- `stdio` becomes `StdioServerParameters(...)`
+- `http` becomes `streamable_http_client(...)`
+- `sse` becomes `sse_client(...)`
+
+The branch still exists, but it is isolated to one place.
+
+That is a much healthier boundary than making the rest of the harness care
+about transport details.
+
+## Connecting with `ClientSession`
+
+Once the adapter has a transport, the runtime can open a real MCP session:
 
 ```python
-client = Client(registry.to_config())
-tools = await client.list_tools()
+async with transport as (read_stream, write_stream, *_):
+    session = ClientSession(read_stream, write_stream)
+    async with session:
+        await session.initialize()
+        tools = await session.list_tools()
 ```
 
-This is one of the nicest parts of the chapter.
+This is still small.
 
-You do **not** need a custom transport switch statement for:
+You are not reimplementing framing, capability negotiation, or request/response
+machinery yourself.
 
-- stdio
-- http
-- sse
-
-FastMCP handles that based on the config.
-
-That matters for stability.
-
-Without FastMCP, this chapter would have to absorb too much complexity at once:
-
-- process management
-- HTTP session handling
-- protocol framing
-- capability negotiation
-- tool invocation details
-
-FastMCP keeps those details in the right layer.
+You are just being more direct about the session lifecycle.
 
 ## Connection lifecycle
 
-The FastMCP client docs emphasize that a connection has a lifecycle, not just a
+The MCP client docs emphasize that a connection has a lifecycle, not just a
 single function call.
 
 For a coding agent, the healthy lifecycle is:
 
 1. discover config
 2. open one client session
-3. list tools once
-4. keep the session open while the run is active
-5. call tools through that live session
-6. close the session cleanly when the run ends
+3. initialize once
+4. list tools once
+5. keep the session open while the run is active
+6. call tools through that live session
+7. close the session cleanly when the run ends
 
 That is exactly why the runtime uses `async with MCPToolAdapter(...)`.
 
@@ -470,7 +507,7 @@ The connection lifecycle should belong to the runtime layer.
 
 ## Operations
 
-FastMCP exposes the standard MCP client operations.
+The `mcp` client exposes the standard MCP client operations.
 
 The most important ones are:
 
@@ -506,10 +543,10 @@ The rest of the runtime still expects local `ToolDefinition` objects and local
 
 So the Python port adds a thin adapter:
 
-1. call `client.list_tools()`
+1. call `session.list_tools()`
 2. convert each remote MCP tool schema into `ToolDefinition`
 3. wrap each tool in a proxy whose `call()` method forwards to
-   `client.call_tool(...)`
+   `session.call_tool(...)`
 
 That means the rest of the agent loop does not need to know whether a tool is:
 
@@ -529,11 +566,12 @@ The core agent loop stays the same.
 
 ## `MCPToolAdapter`
 
-The adapter opens one FastMCP client session for the whole agent run.
+The adapter opens one MCP client session for the whole agent run.
 
 That session:
 
 - connects on entry
+- initializes once
 - lists tools once
 - keeps the connection open while the agent is running
 - closes cleanly when the run finishes
@@ -545,9 +583,9 @@ loop.
 
 For this tutorial implementation, that means:
 
-- plain strings stay plain strings
+- plain text content stays plain text
 - structured JSON results are serialized
-- text content blocks are joined into a readable result
+- embedded resource payloads are turned into readable strings
 
 That is enough for a working coding agent.
 
@@ -650,7 +688,8 @@ template to copy.
 
 This is important to state clearly.
 
-This chapter now **does** implement real MCP tool execution through FastMCP.
+This chapter now **does** implement real MCP tool execution through the Python
+`mcp` SDK.
 
 But it still does **not** yet implement:
 
@@ -668,7 +707,7 @@ This chapter intentionally stops at:
 - config discovery
 - config normalization
 - prompt composition
-- real MCP tool exposure through FastMCP
+- real MCP tool exposure through the `mcp` SDK
 
 That is already enough to make MCP genuinely useful in the tutorial runtime.
 
@@ -685,7 +724,7 @@ The reference tests should cover:
 4. rejecting missing required environment variables
 5. project config overriding user config
 6. rendering a prompt section with server name, transport, source, and summary
-7. actually calling a FastMCP-backed tool from `PlanAgent`
+7. actually calling an MCP-backed tool from `PlanAgent`
 8. surfacing a connection notice when MCP tools are live
 
 That gives you a clean chapter boundary:
@@ -703,7 +742,8 @@ But after this chapter, the Python port now has a real end-to-end path:
 - normalize it
 - merge user and project config
 - render MCP awareness into the prompt
-- connect with FastMCP
+- build transport params from config
+- open a real MCP client session
 - expose remote tools as normal agent tools
 - surface connection state in the TUI
 
@@ -713,7 +753,7 @@ That is what this chapter adds:
 - environment-variable expansion
 - user/project merge rules
 - prompt-level MCP cataloging
-- FastMCP-backed MCP tool execution
+- direct `mcp` SDK-backed MCP tool execution
 
 This keeps the Python tutorial honest and incremental.
 

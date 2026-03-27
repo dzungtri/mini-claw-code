@@ -34,3 +34,4 @@
 - [Chapter 26: Token Usage Tracing](./ch26-token-usage-tracing.md)
 - [Chapter 27: Runtime Events](./ch27-runtime-events.md)
 - [Chapter 28: Runtime Surfaces](./ch28-runtime-surfaces.md)
+- [Chapter 29: Session Persistence and Resume](./ch29-session-persistence.md)
