@@ -8,6 +8,13 @@ from .context import (
     estimate_messages_tokens,
     render_context_durability_prompt_section,
 )
+from .control_plane import (
+    AuditEntry,
+    AuditLog,
+    CONTROL_PLANE_PROMPT_SECTION,
+    ControlPlaneSettings,
+    render_control_plane_prompt_section,
+)
 from .agent import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, SimpleAgent, single_turn
 from .harness import HARNESS_CORE_PROMPT_SECTION, HarnessAgent, render_harness_prompt_section
 from .memory import (
@@ -110,12 +117,16 @@ __all__ = [
     "AssistantTurn",
     "BashTool",
     "ChannelInputHandler",
+    "CONTROL_PLANE_PROMPT_SECTION",
     "CliInputHandler",
     "ContextCompactionResult",
     "ContextCompactionSettings",
+    "ControlPlaneSettings",
     "DEFAULT_PLAN_PROMPT_TEMPLATE",
     "DEFAULT_SUBAGENT_SYSTEM_PROMPT",
     "DEFAULT_SYSTEM_PROMPT_TEMPLATE",
+    "AuditEntry",
+    "AuditLog",
     "EditTool",
     "HARNESS_CORE_PROMPT_SECTION",
     "HarnessAgent",
@@ -191,6 +202,7 @@ __all__ = [
     "render_subagent_prompt_section",
     "render_todo_prompt_section",
     "render_tool_universe_prompt_section",
+    "render_control_plane_prompt_section",
     "render_harness_subagent_prompt_section",
     "render_system_prompt",
     "render_workspace_prompt_section",

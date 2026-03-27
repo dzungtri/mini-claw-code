@@ -28,13 +28,13 @@ This is the part of the harness that decides:
 
 ## What you will build
 
-This chapter defines the final major bundled harness layer:
+This chapter now implements the first real control-plane slice:
 
-1. clarification rules for ambiguous or missing information
-2. approval rules for risky actions
-3. verification-before-exit rules
-4. loop detection for stuck or repetitive behavior
-5. auditability of important runtime actions
+1. clarification-first rules in the harness prompt
+2. approval gates for risky overwrites and risky shell commands
+3. verification warnings before the agent finalizes mutated work
+4. loop detection for repeated identical tool calls
+5. an audit log of important runtime control decisions
 
 These rules are not just safety decoration.
 
@@ -155,6 +155,14 @@ That is a good example of the relationship between planes:
 - `ask_user` is a capability
 - "when must the agent ask?" is control-plane policy
 
+The first Python implementation keeps clarification lightweight:
+
+- the control plane strengthens the clarification-first prompt rule
+- risky runtime approvals also use `ask_user`
+
+That keeps the first version simple while still making clarification a policy,
+not just a tool that may or may not be used.
+
 ## Approval rules
 
 Some actions are more risky than others.
@@ -181,8 +189,13 @@ boundary between:
 
 That is one of the most important control-plane distinctions.
 
-And once the harness gains richer runtime surfaces, approvals can become a
-thread-visible event instead of only a prompt instruction.
+The Python harness now implements two concrete approval gates:
+
+- overwrite an existing file with `write`
+- run a risky shell command such as `rm`, `git reset --hard`, or `sudo`
+
+When approval is needed, the runtime asks the user directly and records the
+decision in the audit log.
 
 ## Verification before exit
 
@@ -217,6 +230,13 @@ Verification asks:
 
 That distinction matters.
 
+The current Python control plane keeps the first slice intentionally modest:
+
+- it does not hard-stop the agent for missing verification
+- it emits a visible warning before finalizing mutated work without a clear
+  verification step
+- it records that warning in the audit log
+
 ## Loop detection
 
 Another common runtime failure is repetition.
@@ -244,6 +264,13 @@ In practice, loop detection often benefits from observability signals such as:
 - repeated command failures
 - repeated clarification loops
 - unusual token growth without task progress
+
+The Python harness now implements a simple deterministic loop check:
+
+- hash the tool name plus arguments
+- count repeated identical calls in a short runtime window
+- warn first
+- then block the repeated call when the hard limit is reached
 
 That alone makes the runtime much stronger.
 
@@ -278,6 +305,14 @@ This matters for:
 - trust
 - testing
 - later UI improvements
+
+The current Python runtime now records audit entries for:
+
+- clarification or approval prompts
+- approval granted or denied
+- loop warnings and loop blocks
+- mutation steps
+- verification observations and verification warnings
 
 Auditability is another good example of a harness concern that sits above any
 one tool.
@@ -337,18 +372,16 @@ A good initial rule is:
 
 That keeps orchestration and control aligned.
 
-## A likely runtime shape in this project
+## The runtime shape in this project
 
-The lightweight Python project may eventually want helpers like:
+The Python project now exposes the control plane through one builder:
 
 ```python
-agent.enable_clarification()
-agent.enable_approvals()
-agent.enable_verification()
-agent.enable_loop_detection()
+agent.enable_control_plane()
 ```
 
-Those names are only sketches.
+That method bundles the first control-plane policy set while keeping the same
+builder style as the rest of the harness.
 
 The more important point is structural:
 
@@ -376,14 +409,15 @@ They are related, but they solve different runtime problems.
 
 That makes the runtime look active while actually being stuck.
 
-## A realistic first milestone
+## What the runtime now does
 
-The first concrete implementation milestone after this chapter should be:
+The current Python implementation now makes this concrete:
 
-1. define clarification as a normal harness behavior
-2. define at least one approval boundary for risky operations
-3. add a verification step before claiming success on non-trivial tasks
-4. detect obvious repetitive failure loops
+1. `enable_control_plane()` adds the control-plane prompt section
+2. risky overwrites and risky shell commands ask for approval
+3. repeated identical tool calls are warned, then blocked
+4. final answers after mutation warn when no clear verification step happened
+5. audit entries can be inspected from the CLI
 
 That is enough to establish a real control plane without making the runtime too
 heavy too early.
@@ -405,7 +439,7 @@ runtime.
 
 ## What's next
 
-At this point the harness section has a full conceptual roadmap:
+At this point the harness section has a full implemented roadmap:
 
 - bundled core tools
 - context durability
@@ -415,5 +449,4 @@ At this point the harness section has a full conceptual roadmap:
 - tool-universe management
 - control plane
 
-The next step is to move back into code and implement these pieces in
-`mini-claw-code-py`, refining the chapters as the concrete runtime takes shape.
+The next step is to keep refining these runtime policies as the harness grows.

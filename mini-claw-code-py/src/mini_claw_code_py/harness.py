@@ -6,6 +6,16 @@ from pathlib import Path
 from typing import Mapping
 
 from .agent import AgentDone, AgentError, AgentEvent, AgentNotice, AgentTextDelta, AgentToolCall, tool_summary
+from .control_plane import (
+    AuditLog,
+    ControlPlaneSettings,
+    approval_message_for_tool,
+    classify_loop,
+    is_mutating_tool,
+    is_verification_tool,
+    render_control_plane_prompt_section,
+    tool_call_signature,
+)
 from .context import (
     ContextCompactionSettings,
     compact_message_history,
@@ -71,6 +81,7 @@ class HarnessAgent:
         self._memory_update_queue: MemoryUpdateQueue | None = None
         self._memory_update_scope = "user"
         self._background_notice_queue: "asyncio.Queue[AgentNotice]" = asyncio.Queue()
+        self._audit_log = AuditLog()
         self._workspace_config: WorkspaceConfig | None = None
         self._mcp_registry: MCPRegistry | None = None
         self._skill_registry: SkillRegistry | None = None
@@ -89,6 +100,9 @@ class HarnessAgent:
         self._context_settings = ContextCompactionSettings()
         self._tool_universe_enabled = False
         self._tool_universe_prompt_enabled = False
+        self._control_plane_enabled = False
+        self._control_plane_prompt_enabled = False
+        self._control_settings = ControlPlaneSettings()
         self.plan_system_prompt = DEFAULT_PLAN_PROMPT_TEMPLATE
         self.execution_system_prompt = DEFAULT_SYSTEM_PROMPT_TEMPLATE
         self.exit_plan_def = ToolDefinition.new(
@@ -397,6 +411,9 @@ class HarnessAgent:
     def notice_queue(self) -> "asyncio.Queue[AgentNotice]":
         return self._background_notice_queue
 
+    def audit_log(self) -> AuditLog:
+        return self._audit_log
+
     async def flush_memory_updates(self) -> None:
         if self._memory_update_queue is None:
             return
@@ -427,6 +444,40 @@ class HarnessAgent:
                 section,
             )
             self._context_prompt_enabled = True
+
+        return self
+
+    def enable_control_plane(
+        self,
+        *,
+        warn_repeated_tool_calls: int = 3,
+        block_repeated_tool_calls: int = 5,
+        require_overwrite_approval: bool = True,
+        require_risky_bash_approval: bool = True,
+        warn_on_missing_verification: bool = True,
+    ) -> "HarnessAgent":
+        self._control_settings = ControlPlaneSettings(
+            warn_repeated_tool_calls=warn_repeated_tool_calls,
+            block_repeated_tool_calls=block_repeated_tool_calls,
+            require_overwrite_approval=require_overwrite_approval,
+            require_risky_bash_approval=require_risky_bash_approval,
+            warn_on_missing_verification=warn_on_missing_verification,
+            audit_limit=self._control_settings.audit_limit,
+        )
+        self._audit_log = AuditLog(limit=self._control_settings.audit_limit)
+        self._control_plane_enabled = True
+
+        if not self._control_plane_prompt_enabled:
+            section = render_control_plane_prompt_section()
+            self.execution_system_prompt = _append_prompt_section(
+                self.execution_system_prompt,
+                section,
+            )
+            self.plan_system_prompt = _append_prompt_section(
+                self.plan_system_prompt,
+                section,
+            )
+            self._control_plane_prompt_enabled = True
 
         return self
 
@@ -503,6 +554,13 @@ class HarnessAgent:
                     )
                 )
 
+            if allowed is None and self._control_plane_enabled:
+                await events.put(
+                    AgentNotice(
+                        "Control plane active: clarification rules, approval gates, verification warnings, loop detection, audit log."
+                    )
+                )
+
             if allowed is not None:
                 allowed_tools = ", ".join(
                     sorted(definition.name for definition in runtime_tools.definitions() if definition.name in allowed)
@@ -514,6 +572,8 @@ class HarnessAgent:
                         f"Allowed tools: {allowed_tools}."
                     )
                 )
+
+            recent_tool_signatures: list[str] = []
 
             while True:
                 all_defs = runtime_tools.definitions()
@@ -551,6 +611,15 @@ class HarnessAgent:
                     if not text:
                         text = "I don't have a textual reply for that turn. Please try again."
                     messages.append(Message.assistant(turn))
+                    if (
+                        allowed is None
+                        and self._control_plane_enabled
+                        and self._mutation_since_last_verification(messages)
+                        and self._control_settings.warn_on_missing_verification
+                    ):
+                        warning = "Control plane warning: final answer was produced without a clear verification step after mutation."
+                        self._audit_log.push("verify", warning)
+                        await events.put(AgentNotice(warning))
                     if allowed is None and self._todo_board.complete_all():
                         await events.put(AgentNotice(self._todo_board.notice()))
                     notice = await self._queue_memory_update(messages)
@@ -583,9 +652,24 @@ class HarnessAgent:
                         continue
 
                     await events.put(AgentToolCall(call.name, tool_summary(call)))
+                    if call.name == "ask_user" and self._control_plane_enabled:
+                        self._audit_log.push("clarify", f"Asked user: {_tool_detail(call.arguments)}")
+
                     tool = runtime_tools.get(call.name)
                     if tool is None:
                         content = f"error: unknown tool `{call.name}`"
+                    elif (
+                        allowed is None
+                        and self._control_plane_enabled
+                        and self._should_block_loop(call.name, call.arguments, recent_tool_signatures, events)
+                    ):
+                        content = "error: control plane blocked a repeated tool-call loop"
+                    elif (
+                        allowed is None
+                        and self._control_plane_enabled
+                        and await self._requires_approval(call.name, call.arguments, runtime_tools, events)
+                    ):
+                        content = "error: user denied approval"
                     elif call.name == "subagent" and allowed is None:
                         subagent_calls_seen += 1
                         if subagent_calls_seen > self._max_parallel_subagents:
@@ -613,8 +697,13 @@ class HarnessAgent:
                         except Exception as exc:
                             content = f"error: {exc}"
                     results.append((call.id, content))
+                    if self._control_plane_enabled:
+                        recent_tool_signatures.append(tool_call_signature(call.name, call.arguments))
+                        recent_tool_signatures[:] = recent_tool_signatures[-20:]
                     if call.name == "write_todos" and not content.startswith("error:"):
                         await events.put(AgentNotice(self._todo_board.notice()))
+                    if self._control_plane_enabled and not content.startswith("error:"):
+                        self._record_control_plane_success(call.name, call.arguments)
 
                 if subagent_tasks:
                     subagent_outputs = await asyncio.gather(*subagent_tasks)
@@ -750,6 +839,83 @@ class HarnessAgent:
             return await tool.call(args)  # type: ignore[call-arg]
         except Exception as exc:
             return f"error: {exc}"
+
+    async def _requires_approval(
+        self,
+        name: str,
+        args: object,
+        runtime_tools: ToolSet,
+        events: "asyncio.Queue[AgentEvent]",
+    ) -> bool:
+        message = approval_message_for_tool(name, args, self._control_settings)
+        if message is None:
+            return False
+
+        self._audit_log.push("approval", f"Approval required for {name}: {message}")
+        await events.put(AgentNotice(f"Approval required: {message}"))
+        ask_tool = runtime_tools.get("ask_user")
+        if ask_tool is None:
+            return True
+
+        answer = await ask_tool.call(
+            {
+                "question": message,
+                "options": ["Approve", "Cancel"],
+            }
+        )
+        normalized = answer.strip().lower()
+        approved = normalized in {"approve", "approved", "yes", "y", "1"}
+        if approved:
+            self._audit_log.push("approval", f"Approval granted for {name}")
+            await events.put(AgentNotice(f"Approval granted: {message}"))
+            return False
+
+        self._audit_log.push("approval", f"Approval denied for {name}")
+        await events.put(AgentNotice(f"Approval denied: {message}"))
+        return True
+
+    def _should_block_loop(
+        self,
+        name: str,
+        args: object,
+        recent_tool_signatures: list[str],
+        events: "asyncio.Queue[AgentEvent]",
+    ) -> bool:
+        signature = tool_call_signature(name, args)
+        signatures = [*recent_tool_signatures, signature]
+        status = classify_loop(signatures, signature, self._control_settings)
+        if status == "warn":
+            warning = f"Loop warning: repeated tool call detected for {name}. Change strategy if this keeps failing."
+            self._audit_log.push("loop", warning)
+            events.put_nowait(AgentNotice(warning))
+            return False
+        if status == "block":
+            warning = f"Loop blocked: repeated tool call limit reached for {name}."
+            self._audit_log.push("loop", warning)
+            events.put_nowait(AgentNotice(warning))
+            return True
+        return False
+
+    def _record_control_plane_success(self, name: str, args: object) -> None:
+        signature = tool_call_signature(name, args)
+        self._audit_log.push("tool", f"{name}: {_tool_detail(args)}")
+        if is_verification_tool(name, args):
+            self._audit_log.push("verify", f"Verification step observed via {name}")
+        if is_mutating_tool(name, args):
+            self._audit_log.push("mutate", f"Mutation step observed via {name}")
+
+    @staticmethod
+    def _mutation_since_last_verification(messages: list[Message]) -> bool:
+        mutated = False
+        for message in messages:
+            if message.kind != "assistant" or message.turn is None:
+                continue
+            for call in message.turn.tool_calls:
+                if is_mutating_tool(call.name, call.arguments):
+                    mutated = True
+                elif mutated and is_verification_tool(call.name, call.arguments):
+                    mutated = False
+        return mutated
 
 
 def render_harness_prompt_section() -> str:

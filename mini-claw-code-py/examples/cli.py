@@ -166,6 +166,11 @@ def print_runtime_status(agent: HarnessAgent, *, plan_mode: bool) -> None:
     print()
 
 
+def print_audit_log(agent: HarnessAgent) -> None:
+    print(f"  {DIM}{agent.audit_log().render()}{RESET}")
+    print()
+
+
 async def main() -> None:
     provider = OpenRouterProvider.from_env()
     input_queue: asyncio.Queue[UserInputRequest] = asyncio.Queue()
@@ -202,6 +207,7 @@ async def main() -> None:
         .enable_default_mcp(cwd=cwd)
         .enable_tool_universe_management()
         .enable_default_skills(cwd)
+        .enable_control_plane()
     )
 
     history: list[Message] = []
@@ -233,6 +239,9 @@ async def main() -> None:
             continue
         if prompt in {"/status", "/todos"}:
             print_runtime_status(agent, plan_mode=plan_mode)
+            continue
+        if prompt == "/audit":
+            print_audit_log(agent)
             continue
 
         if not plan_mode and agent.todo_board().all_completed():
