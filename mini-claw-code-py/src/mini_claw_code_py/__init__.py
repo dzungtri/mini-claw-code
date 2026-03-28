@@ -79,6 +79,7 @@ from .memory import (
 from .mcp import MCPCatalog, MCPPromptEntry, MCPRegistry, MCPResourceEntry, MCPServer, MCPToolAdapter
 from .mcp import default_mcp_config_paths, parse_mcp_config
 from .mock import MockProvider
+from .os import EventEnvelope, MessageBus, MessageEnvelope, create_envelope_id, create_trace_id
 from .planning import PlanAgent
 from .prompts import (
     DEFAULT_PLAN_PROMPT_TEMPLATE,
@@ -217,11 +218,14 @@ __all__ = [
     "ArtifactDelta",
     "ArtifactRecord",
     "EditTool",
+    "EventEnvelope",
     "HARNESS_CORE_PROMPT_SECTION",
     "HarnessConfig",
     "HarnessAgent",
     "InputHandler",
     "Message",
+    "MessageBus",
+    "MessageEnvelope",
     "LEARNED_MEMORY_END",
     "LEARNED_MEMORY_START",
     "MemoryDocument",
@@ -243,6 +247,8 @@ __all__ = [
     "PLAN_PROMPT_FILE_ENV",
     "PlanAgent",
     "Provider",
+    "create_envelope_id",
+    "create_trace_id",
     "ReadTool",
     "Skill",
     "SkillRegistry",
