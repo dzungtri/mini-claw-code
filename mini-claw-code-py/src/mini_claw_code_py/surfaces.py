@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from .events import (
     AgentApprovalUpdate,
+    AgentArtifactUpdate,
     AgentContextCompaction,
     AgentMemoryUpdate,
     AgentSubagentUpdate,
@@ -52,6 +53,12 @@ def surface_block_for_event(event: object) -> SurfaceBlock | None:
             summary=f"compacted {event.archived_messages} archived, kept {event.kept_messages} live ({trigger})",
             details=[],
         )
+    if isinstance(event, AgentArtifactUpdate):
+        return SurfaceBlock(
+            kind="artifacts",
+            summary=f"{event.created} new, {event.updated} updated, {event.removed} removed",
+            details=[],
+        )
     if isinstance(event, AgentTokenUsage):
         return SurfaceBlock(
             kind="usage",
@@ -73,12 +80,15 @@ def render_runtime_status(
     control_profile: str | None,
     todo_text: str,
     token_usage_text: str,
+    artifact_text: str | None = None,
 ) -> list[str]:
     lines = [f"Mode: {mode}"]
     if control_profile is not None:
         lines.append(f"Control profile: {control_profile}")
     lines.extend(todo_text.splitlines())
     lines.extend(token_usage_text.splitlines())
+    if artifact_text:
+        lines.extend(artifact_text.splitlines())
     return lines
 
 

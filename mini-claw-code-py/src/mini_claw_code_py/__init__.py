@@ -1,3 +1,14 @@
+from .artifacts import (
+    ARTIFACT_MANIFEST_PATH,
+    ArtifactCatalog,
+    ArtifactDelta,
+    ArtifactRecord,
+    diff_artifacts,
+    load_artifact_manifest,
+    render_artifact_prompt_section,
+    scan_artifacts,
+    write_artifact_manifest,
+)
 from .config import (
     CONFIG_FILE_NAME,
     CONFIG_PATH_ENV,
@@ -30,6 +41,7 @@ from .control_plane import (
 )
 from .events import (
     AgentApprovalUpdate,
+    AgentArtifactUpdate,
     AgentContextCompaction,
     AgentDone,
     AgentError,
@@ -159,10 +171,12 @@ from .workspace import (
 __all__ = [
     "ARCHIVED_CONTEXT_CLOSE",
     "ARCHIVED_CONTEXT_OPEN",
+    "ARTIFACT_MANIFEST_PATH",
     "AgentDone",
     "AgentError",
     "AgentEvent",
     "AgentApprovalUpdate",
+    "AgentArtifactUpdate",
     "AgentContextCompaction",
     "AgentMemoryUpdate",
     "AgentNotice",
@@ -190,6 +204,9 @@ __all__ = [
     "DEFAULT_SYSTEM_PROMPT_TEMPLATE",
     "AuditEntry",
     "AuditLog",
+    "ArtifactCatalog",
+    "ArtifactDelta",
+    "ArtifactRecord",
     "EditTool",
     "HARNESS_CORE_PROMPT_SECTION",
     "HarnessConfig",
@@ -253,6 +270,7 @@ __all__ = [
     "WriteTool",
     "apply_harness_config",
     "allowed_workspace_roots",
+    "diff_artifacts",
     "estimate_message_tokens",
     "estimate_messages_tokens",
     "estimate_assistant_turn_tokens",
@@ -273,6 +291,7 @@ __all__ = [
     "is_allowed_workspace_path",
     "is_within_workspace",
     "latest_memory_exchange",
+    "load_artifact_manifest",
     "load_prompt_template",
     "load_harness_config",
     "load_memory_sources",
@@ -280,6 +299,7 @@ __all__ = [
     "parse_mcp_config",
     "parse_sse_line",
     "parse_skill_file",
+    "render_artifact_prompt_section",
     "render_memory_prompt_section",
     "render_runtime_status",
     "render_surface_block",
@@ -293,6 +313,7 @@ __all__ = [
     "render_context_durability_prompt_section",
     "render_harness_prompt_section",
     "resolve_workspace_path",
+    "scan_artifacts",
     "serialize_messages",
     "select_recent_memory_messages",
     "single_turn",
@@ -304,4 +325,5 @@ __all__ = [
     "tool_summary",
     "validate_bash_command",
     "WriteTodosTool",
+    "write_artifact_manifest",
 ]

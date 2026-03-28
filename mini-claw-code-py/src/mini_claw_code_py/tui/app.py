@@ -143,6 +143,9 @@ async def _handle_command(
     if prompt in {"/status", "/todos"}:
         ui.print_runtime_status(agent, plan_mode=plan_mode)
         return True, agent, current_session, history, plan_mode
+    if prompt == "/artifacts":
+        ui.print_artifacts(agent)
+        return True, agent, current_session, history, plan_mode
     if prompt == "/session":
         ui.print_session_status(current_session)
         return True, agent, current_session, history, plan_mode

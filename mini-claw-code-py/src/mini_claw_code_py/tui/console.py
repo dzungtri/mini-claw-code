@@ -14,6 +14,7 @@ from rich.text import Text
 
 from mini_claw_code_py import (
     AgentApprovalUpdate,
+    AgentArtifactUpdate,
     AgentContextCompaction,
     AgentDone,
     AgentError,
@@ -41,6 +42,7 @@ STRUCTURED_EVENT_TYPES: Final = (
     AgentTodoUpdate,
     AgentSubagentUpdate,
     AgentApprovalUpdate,
+    AgentArtifactUpdate,
     AgentMemoryUpdate,
     AgentContextCompaction,
 )
@@ -49,6 +51,7 @@ DEFAULT_COMMAND_ROWS: Final[tuple[tuple[str, str], ...]] = (
     ("/plan", "toggle planning mode"),
     ("/status", "show runtime status"),
     ("/todos", "show todo state"),
+    ("/artifacts", "show tracked output artifacts"),
     ("/session", "show current session"),
     ("/sessions", "show recent sessions and select one to resume"),
     ("/rename <title>", "rename the current session"),
@@ -239,11 +242,15 @@ class ConsoleUI:
             control_profile=agent.control_plane_profile_name(),
             todo_text=agent.todo_board().render(),
             token_usage_text=agent.token_usage_tracker().render(),
+            artifact_text=agent.artifact_catalog().render(),
         )
         self._print_lines_panel("Runtime", lines)
 
     def print_audit_log(self, agent: object) -> None:
         self._print_lines_panel("Audit Log", agent.audit_log().render().splitlines())
+
+    def print_artifacts(self, agent: object) -> None:
+        self._print_lines_panel("Artifacts", agent.artifact_catalog().render().splitlines())
 
     def print_session_status(self, session: SessionRecord) -> None:
         table = Table.grid(padding=(0, 1))

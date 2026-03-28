@@ -57,6 +57,7 @@ def test_tui_print_help_lists_core_commands() -> None:
     rendered = console.export_text()
     assert "/help" in rendered
     assert "/plan" in rendered
+    assert "/artifacts" in rendered
     assert "/fork" in rendered
     assert "/rename <title>" in rendered
     assert "/resume <id>" in rendered

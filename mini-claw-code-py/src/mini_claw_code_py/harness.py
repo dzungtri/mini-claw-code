@@ -5,6 +5,15 @@ from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Mapping
 
+from .artifacts import (
+    ArtifactCatalog,
+    ArtifactRecord,
+    diff_artifacts,
+    load_artifact_manifest,
+    render_artifact_prompt_section,
+    scan_artifacts,
+    write_artifact_manifest,
+)
 from .control_plane import (
     AuditEntry,
     AuditLog,
@@ -25,6 +34,7 @@ from .context import (
 )
 from .events import (
     AgentApprovalUpdate,
+    AgentArtifactUpdate,
     AgentContextCompaction,
     AgentDone,
     AgentError,
@@ -112,6 +122,7 @@ class HarnessAgent:
         self._mcp_registry: MCPRegistry | None = None
         self._skill_registry: SkillRegistry | None = None
         self._todo_board = TodoBoard()
+        self._artifact_catalog = ArtifactCatalog()
         self._core_tools_enabled = False
         self._ask_tool_enabled = False
         self._core_prompt_enabled = False
@@ -191,6 +202,9 @@ class HarnessAgent:
 
     def todo_board(self) -> TodoBoard:
         return self._todo_board
+
+    def artifact_catalog(self) -> ArtifactCatalog:
+        return self._artifact_catalog
 
     def workspace(
         self,
@@ -581,6 +595,7 @@ class HarnessAgent:
     ) -> str:
         async with AsyncExitStack() as stack:
             runtime_tools = self.tools.copy()
+            artifact_before = self._artifact_snapshot()
             deferred_registry = DeferredToolRegistry()
             mcp_summary: str | None = None
             if allowed is None and self._mcp_registry is not None and self._mcp_registry.all():
@@ -700,6 +715,10 @@ class HarnessAgent:
                     if not text:
                         text = "I don't have a textual reply for that turn. Please try again."
                     messages.append(Message.assistant(turn))
+                    artifact_event = self._refresh_artifacts(artifact_before)
+                    if artifact_event is not None:
+                        await events.put(artifact_event)
+                        await events.put(AgentNotice(artifact_event.message))
                     if (
                         allowed is None
                         and self._control_plane_enabled
@@ -843,6 +862,10 @@ class HarnessAgent:
 
                 if exit_plan:
                     text = turn.text or ""
+                    artifact_event = self._refresh_artifacts(artifact_before)
+                    if artifact_event is not None:
+                        await events.put(artifact_event)
+                        await events.put(AgentNotice(artifact_event.message))
                     notice = await self._queue_memory_update(messages)
                     if notice:
                         await events.put(notice)
@@ -881,6 +904,10 @@ class HarnessAgent:
             effective = _append_prompt_section(
                 effective,
                 render_workspace_prompt_section(self._workspace_config),
+            )
+            effective = _append_prompt_section(
+                effective,
+                render_artifact_prompt_section(self._workspace_config.outputs),
             )
         return effective
 
@@ -956,17 +983,48 @@ class HarnessAgent:
 
     def _install_core_tools(self) -> None:
         if self._workspace_config is None:
+            self._artifact_catalog.replace([])
             self.tool(ReadTool())
             self.tool(WriteTool())
             self.tool(EditTool())
             self.tool(BashTool())
             self.tool(WriteTodosTool(self._todo_board))
             return
+        self._artifact_catalog.replace(load_artifact_manifest(self._workspace_config.root))
         self.tool(WorkspaceReadTool(self._workspace_config))
         self.tool(WorkspaceWriteTool(self._workspace_config))
         self.tool(WorkspaceEditTool(self._workspace_config))
         self.tool(WorkspaceBashTool(self._workspace_config))
         self.tool(WriteTodosTool(self._todo_board))
+
+    def _artifact_snapshot(self) -> list[ArtifactRecord]:
+        if self._workspace_config is None:
+            return []
+        return scan_artifacts(self._workspace_config.outputs)
+
+    def _refresh_artifacts(
+        self,
+        before: list[ArtifactRecord],
+    ) -> AgentArtifactUpdate | None:
+        if self._workspace_config is None:
+            self._artifact_catalog.replace([])
+            return None
+        after = scan_artifacts(self._workspace_config.outputs)
+        self._artifact_catalog.replace(after)
+        write_artifact_manifest(
+            self._workspace_config.root,
+            outputs_dir=self._workspace_config.outputs,
+            records=after,
+        )
+        delta = diff_artifacts(before, after)
+        if delta.is_empty():
+            return None
+        return AgentArtifactUpdate(
+            message=delta.summary(),
+            created=len(delta.created),
+            updated=len(delta.updated),
+            removed=len(delta.removed),
+        )
 
     def _default_subagent_tool_names(self) -> list[str]:
         candidates = ["read", "write", "edit", "bash"]

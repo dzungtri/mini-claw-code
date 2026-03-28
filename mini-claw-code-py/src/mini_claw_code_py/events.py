@@ -74,6 +74,14 @@ class AgentContextCompaction:
     triggered_by: tuple[str, ...]
 
 
+@dataclass(slots=True)
+class AgentArtifactUpdate:
+    message: str
+    created: int
+    updated: int
+    removed: int
+
+
 AgentEvent = (
     AgentTextDelta
     | AgentToolCall
@@ -86,6 +94,7 @@ AgentEvent = (
     | AgentApprovalUpdate
     | AgentMemoryUpdate
     | AgentContextCompaction
+    | AgentArtifactUpdate
 )
 
 
