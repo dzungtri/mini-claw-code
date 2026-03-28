@@ -11,6 +11,7 @@ from mini_claw_code_py import (
     OpenRouterProvider,
     SessionRecord,
     SessionStore,
+    TeamRegistry,
     UserInputRequest,
 )
 
@@ -136,6 +137,9 @@ async def _handle_command(
         return True, agent, current_session, history, plan_mode
     if prompt == "/agents":
         ui.print_agents(HostedAgentRegistry.discover_default(cwd=workspace, home=Path.home()), current_agent="superagent")
+        return True, agent, current_session, history, plan_mode
+    if prompt == "/teams":
+        ui.print_teams(TeamRegistry.discover_default(cwd=workspace, home=Path.home()))
         return True, agent, current_session, history, plan_mode
     if prompt == "/session":
         ui.print_session_status(current_session)
