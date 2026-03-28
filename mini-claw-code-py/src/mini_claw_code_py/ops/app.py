@@ -4,6 +4,7 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.css.query import NoMatches
 from textual.containers import Grid, Vertical
 from textual.widgets import DataTable, Footer, Header, Input, Static
 
@@ -227,7 +228,12 @@ class OperatorApp(App[None]):
 
     def refresh_snapshot(self) -> None:
         snapshot = self.service.snapshot()
-        self.query_one("#summary", Static).update(_render_summary(snapshot))
+        try:
+            summary = self.query_one("#summary", Static)
+            alerts = self.query_one("#alerts", Static)
+        except NoMatches:
+            return
+        summary.update(_render_summary(snapshot))
         self._refreshing_tables = True
         try:
             self._update_teams_table(snapshot)
@@ -237,7 +243,7 @@ class OperatorApp(App[None]):
             self._update_sessions_table(snapshot)
         finally:
             self._refreshing_tables = False
-        self.query_one("#alerts", Static).update(_render_alerts(snapshot))
+        alerts.update(_render_alerts(snapshot))
 
     def _update_teams_table(self, snapshot: OperatorSnapshot) -> None:
         table = self.query_one("#teams", DataTable)

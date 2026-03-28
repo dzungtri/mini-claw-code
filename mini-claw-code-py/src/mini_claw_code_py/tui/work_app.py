@@ -13,7 +13,6 @@ from textual.widgets import Footer, Header, Input, RichLog, Static
 from mini_claw_code_py import (
     AgentApprovalUpdate,
     AgentArtifactUpdate,
-    ChannelRegistry,
     AgentContextCompaction,
     AgentDone,
     AgentError,
@@ -37,6 +36,7 @@ from mini_claw_code_py import (
     SessionStore,
     SessionWorkStore,
     SessionRouter,
+    SkillHubManager,
     TaskStore,
     TeamRegistry,
     TurnRunner,
@@ -50,6 +50,7 @@ from .app import (
     _save_session,
     _shutdown,
     build_agent,
+    _parse_skill_install_args,
     resolve_cli_route,
 )
 from .console import (
@@ -301,6 +302,45 @@ class WorkApp(App[None]):
         if prompt == "/teams":
             self._append_rendered("Teams", "print_teams", self.teams)
             return
+        if prompt == "/skills":
+            self._append_block("Skills", self._skill_hub_manager().render())
+            return
+        if prompt.startswith("/skill search"):
+            query = prompt[len("/skill search") :].strip()
+            if not query:
+                self._append_block("Usage", "/skill search <query>")
+                return
+            try:
+                result = await asyncio.to_thread(self._skill_hub_manager().search, query)
+            except Exception as exc:
+                self._append_block("Skill Search", str(exc))
+                return
+            self._append_block("Skill Search", result.stdout or "(no output)")
+            return
+        if prompt.startswith("/skill install-user"):
+            try:
+                install = await asyncio.to_thread(
+                    self._skill_hub_manager().install_user_skill,
+                    **_parse_skill_install_args(prompt, slug_index=2),
+                )
+            except Exception as exc:
+                self._append_block("Skill Install", str(exc))
+                return
+            self._append_block("Skill Install", self._render_skill_install(install))
+            return
+        if prompt.startswith("/skill install"):
+            install_args = _parse_skill_install_args(prompt, slug_index=2)
+            install_user = bool(install_args.pop("install_user", False))
+            try:
+                install = await asyncio.to_thread(
+                    self._skill_hub_manager().install_user_skill if install_user else self._skill_hub_manager().install_project_skill,
+                    **install_args,
+                )
+            except Exception as exc:
+                self._append_block("Skill Install", str(exc))
+                return
+            self._append_block("Skill Install", self._render_skill_install(install))
+            return
         if prompt == "/work":
             self._append_rendered(
                 "Work",
@@ -469,6 +509,23 @@ class WorkApp(App[None]):
             await event_task
             self._set_busy(False)
             self._refresh_status()
+
+    def _skill_hub_manager(self) -> SkillHubManager:
+        return SkillHubManager(
+            cwd=self.cwd,
+            home=self.home,
+            root=default_os_state_root(self.cwd),
+        )
+
+    def _render_skill_install(self, install: object) -> str:
+        return "\n".join(
+            [
+                f"Installed {install.slug}",
+                f"scope={install.scope}",
+                f"install_root={install.install_root}",
+                f"version={install.version or 'latest'}",
+            ]
+        )
 
     async def _run_plan(self, prompt: str) -> None:
         self._set_busy(True)

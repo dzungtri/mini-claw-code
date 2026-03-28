@@ -59,6 +59,9 @@ DEFAULT_COMMAND_ROWS: Final[tuple[tuple[str, str], ...]] = (
     ("/agents", "show hosted agents from the registry"),
     ("/channels", "show discovered channel definitions"),
     ("/teams", "show discovered teams"),
+    ("/skills", "show local skills and tracked hub installs"),
+    ("/skill search <query>", "search remote skills through the hub bridge"),
+    ("/skill install <slug> [--user] [--version <v>] [--force]", "install a remote skill into project or user scope"),
     ("/work", "show the current session work binding"),
     ("/goals", "show tracked OS goals"),
     ("/tasks", "show tracked OS tasks"),
@@ -316,6 +319,9 @@ class ConsoleUI:
 
     def print_runs(self, store: object) -> None:
         self._print_lines_panel("Runs", store.render().splitlines())
+
+    def print_rendered_text(self, title: str, text: str) -> None:
+        self._print_lines_panel(title, text.splitlines() if text else [""])
 
     def print_session_status(
         self,

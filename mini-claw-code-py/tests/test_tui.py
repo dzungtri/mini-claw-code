@@ -84,6 +84,8 @@ def test_tui_print_help_lists_core_commands() -> None:
     assert "/agents" in rendered
     assert "/channels" in rendered
     assert "/teams" in rendered
+    assert "/skills" in rendered
+    assert "/skill search <query>" in rendered
     assert "/work" in rendered
     assert "/goals" in rendered
     assert "/tasks" in rendered
@@ -354,6 +356,104 @@ def test_tui_handle_command_channels_prints_channel_registry(tmp_path: Path) -> 
     assert "Channels" in rendered
     assert "cli" in rendered
     assert "telegram" in rendered
+
+
+def test_tui_handle_command_skills_prints_skill_summary(tmp_path: Path) -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+    store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    runs = RunStore(tmp_path / ".mini-claw" / "os")
+    router = SessionRouter(default_route_store(tmp_path), store)
+    current_session = store.create(cwd=tmp_path)
+    current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
+    skill_root = tmp_path / ".agents" / "skills" / "calendar-helper"
+    skill_root.mkdir(parents=True)
+    (skill_root / "SKILL.md").write_text(
+        (
+            "---\n"
+            "name: calendar-helper\n"
+            "description: Calendar workflow helper.\n"
+            "---\n"
+            "\n"
+            "Use this skill for calendar workflows.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    class DummyAgent:
+        def subagent_profile_registry(self) -> SubagentProfileRegistry:
+            return SubagentProfileRegistry({})
+
+    async def run() -> tuple[bool, object, object, object, list[Message], bool]:
+        return await _handle_command(
+            prompt="/skills",
+            provider=None,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            input_queue=asyncio.Queue(),
+            store=store,
+            router=router,
+            runs=runs,
+            agent=DummyAgent(),  # type: ignore[arg-type]
+            current_route=current_route,
+            current_session=current_session,
+            history=[],
+            plan_mode=False,
+            ui=ui,
+        )
+
+    handled, _, _, _, _, _ = asyncio.run(run())
+
+    rendered = console.export_text()
+    assert handled is True
+    assert "Skills" in rendered
+    assert "calendar-helper" in rendered
+
+
+def test_tui_handle_command_skill_search_renders_hub_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+    store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    runs = RunStore(tmp_path / ".mini-claw" / "os")
+    router = SessionRouter(default_route_store(tmp_path), store)
+    current_session = store.create(cwd=tmp_path)
+    current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
+
+    class DummyAgent:
+        def subagent_profile_registry(self) -> SubagentProfileRegistry:
+            return SubagentProfileRegistry({})
+
+    class FakeManager:
+        def search(self, query: str) -> object:
+            class Result:
+                stdout = f"Found remote skill for: {query}"
+
+            return Result()
+
+    monkeypatch.setattr("mini_claw_code_py.tui.app._skill_hub_manager", lambda workspace: FakeManager())
+
+    async def run() -> tuple[bool, object, object, object, list[Message], bool]:
+        return await _handle_command(
+            prompt="/skill search postgres backups",
+            provider=None,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            input_queue=asyncio.Queue(),
+            store=store,
+            router=router,
+            runs=runs,
+            agent=DummyAgent(),  # type: ignore[arg-type]
+            current_route=current_route,
+            current_session=current_session,
+            history=[],
+            plan_mode=False,
+            ui=ui,
+        )
+
+    handled, _, _, _, _, _ = asyncio.run(run())
+
+    rendered = console.export_text()
+    assert handled is True
+    assert "Skill Search" in rendered
+    assert "postgres backups" in rendered
 
 
 def test_tui_handle_command_routes_prints_route_store(tmp_path: Path) -> None:

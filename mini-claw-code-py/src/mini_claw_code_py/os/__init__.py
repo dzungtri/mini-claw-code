@@ -43,6 +43,16 @@ from .operator import (
 )
 from .session_router import RouteStore, SessionRoute, SessionRouter, default_route_store
 from .runner import RunnerContext, RunnerResult, TurnRunner
+from .skill_hubs import (
+    SKILL_HUB_INSTALLS_FILE_NAME,
+    SKILL_HUB_PROVIDER_CLAWHUB,
+    ClawHubClient,
+    SkillHubCommandResult,
+    SkillHubInstallRecord,
+    SkillHubInstallStore,
+    SkillHubManager,
+    default_clawhub_command,
+)
 from .work import (
     GOAL_STATUSES,
     RUN_STATUSES,
@@ -70,6 +80,7 @@ __all__ = [
     "AGENT_REGISTRY_FILE_NAME",
     "CHANNEL_CONFIG_FILE_NAME",
     "CRON_FILE_NAME",
+    "ClawHubClient",
     "ChannelDefinition",
     "ChannelRegistry",
     "EventEnvelope",
@@ -93,8 +104,14 @@ __all__ = [
     "RouteStore",
     "RunnerContext",
     "RunnerResult",
+    "SKILL_HUB_INSTALLS_FILE_NAME",
+    "SKILL_HUB_PROVIDER_CLAWHUB",
     "SessionRoute",
     "SessionRouter",
+    "SkillHubCommandResult",
+    "SkillHubInstallRecord",
+    "SkillHubInstallStore",
+    "SkillHubManager",
     "TurnRunner",
     "GOAL_STATUSES",
     "RUN_STATUSES",
@@ -119,6 +136,7 @@ __all__ = [
     "CronStore",
     "default_agent_registry_paths",
     "default_channel_config_paths",
+    "default_clawhub_command",
     "default_cli_channel",
     "default_os_state_root",
     "default_route_store",

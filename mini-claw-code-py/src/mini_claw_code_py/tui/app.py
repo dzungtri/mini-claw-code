@@ -14,6 +14,7 @@ from mini_claw_code_py import (
     GoalStore,
     RunStore,
     SessionWorkStore,
+    SkillHubManager,
     SessionRoute,
     SessionRecord,
     SessionStore,
@@ -234,6 +235,65 @@ async def _handle_command(
         return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/teams":
         ui.print_teams(TeamRegistry.discover_default(cwd=workspace, home=Path.home()))
+        return True, agent, current_route, current_session, history, plan_mode
+    if prompt == "/skills":
+        ui.print_rendered_text("Skills", _skill_hub_manager(workspace).render())
+        return True, agent, current_route, current_session, history, plan_mode
+    if prompt.startswith("/skill search"):
+        query = prompt[len("/skill search") :].strip()
+        if not query:
+            ui.print_usage("/skill search <query>")
+            return True, agent, current_route, current_session, history, plan_mode
+        try:
+            result = _skill_hub_manager(workspace).search(query)
+        except Exception as exc:
+            ui.print_usage(str(exc))
+            return True, agent, current_route, current_session, history, plan_mode
+        ui.print_rendered_text("Skill Search", result.stdout or "(no output)")
+        return True, agent, current_route, current_session, history, plan_mode
+    if prompt.startswith("/skill install-user"):
+        try:
+            install = _skill_hub_manager(workspace).install_user_skill(
+                **_parse_skill_install_args(prompt, slug_index=2)
+            )
+        except Exception as exc:
+            ui.print_usage(str(exc))
+            return True, agent, current_route, current_session, history, plan_mode
+        ui.print_rendered_text(
+            "Skill Install",
+            "\n".join(
+                [
+                    f"Installed {install.slug}",
+                    f"scope={install.scope}",
+                    f"install_root={install.install_root}",
+                    f"version={install.version or 'latest'}",
+                ]
+            ),
+        )
+        return True, agent, current_route, current_session, history, plan_mode
+    if prompt.startswith("/skill install"):
+        install_args = _parse_skill_install_args(prompt, slug_index=2)
+        install_user = bool(install_args.pop("install_user", False))
+        try:
+            install = (
+                _skill_hub_manager(workspace).install_user_skill(**install_args)
+                if install_user
+                else _skill_hub_manager(workspace).install_project_skill(**install_args)
+            )
+        except Exception as exc:
+            ui.print_usage(str(exc))
+            return True, agent, current_route, current_session, history, plan_mode
+        ui.print_rendered_text(
+            "Skill Install",
+            "\n".join(
+                [
+                    f"Installed {install.slug}",
+                    f"scope={install.scope}",
+                    f"install_root={install.install_root}",
+                    f"version={install.version or 'latest'}",
+                ]
+            ),
+        )
         return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/work":
         ui.print_work_status(
@@ -459,3 +519,47 @@ async def _shutdown(agent: HarnessAgent, ui: ConsoleUI) -> None:
     await agent.flush_memory_updates()
     ui.drain_notice_queue(agent.notice_queue())
     ui.console.print()
+
+
+def _skill_hub_manager(workspace: Path) -> SkillHubManager:
+    return SkillHubManager(
+        cwd=workspace,
+        home=Path.home(),
+        root=default_os_state_root(workspace),
+    )
+
+
+def _parse_skill_install_args(prompt: str, *, slug_index: int) -> dict[str, object]:
+    parts = prompt.split()
+    if len(parts) <= slug_index:
+        raise ValueError("/skill install <slug> [--version <v>] [--force]")
+    slug = parts[slug_index].strip()
+    if not slug:
+        raise ValueError("skill slug cannot be empty")
+    version: str | None = None
+    force = False
+    install_user = False
+    index = slug_index + 1
+    while index < len(parts):
+        part = parts[index]
+        if part == "--version":
+            if index + 1 >= len(parts):
+                raise ValueError("--version requires a value")
+            version = parts[index + 1].strip()
+            index += 2
+            continue
+        if part == "--force":
+            force = True
+            index += 1
+            continue
+        if part == "--user":
+            install_user = True
+            index += 1
+            continue
+        raise ValueError(f"unsupported skill install option: {part}")
+    return {
+        "slug": slug,
+        "version": version,
+        "force": force,
+        "install_user": install_user,
+    }
