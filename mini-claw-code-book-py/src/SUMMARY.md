@@ -53,3 +53,4 @@
 - [Chapter 45: Skill Hubs, Trust, and Installation](./ch45-skill-hubs-trust-installation.md)
 - [Chapter 46: Traceability, Monitoring, and Operator Controls](./ch46-traceability-monitoring-operator-controls.md)
 - [Chapter 47: Operator Console and Control API](./ch47-operator-console-control-api.md)
+- [Chapter 48: Cancelling Runs and Operator Actions](./ch48-cancel-runs-operator-actions.md)
