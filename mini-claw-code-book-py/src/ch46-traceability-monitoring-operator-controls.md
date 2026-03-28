@@ -72,6 +72,19 @@ Useful identifiers:
 - `thread_key`
 - `target_agent`
 
+But tracing identifiers is not enough.
+
+The OS should also trace execution usage.
+
+That means at minimum:
+
+- input tokens
+- output tokens
+- total tokens
+- model/provider name
+- price basis for that provider
+- estimated cost in money
+
 ### 2. Monitoring
 
 Monitoring answers:
@@ -85,6 +98,7 @@ Examples:
 - average turn latency
 - queue depth
 - token usage
+- cost usage
 - tool failure rate
 - agent availability
 - background job health
@@ -136,6 +150,13 @@ Those are different surfaces.
 
 Do not confuse them.
 
+The clean operating model is:
+
+- one work console for active conversation
+- one operator console for system inspection and control
+
+The next chapter will make that split explicit.
+
 ## The Minimum Trace Model
 
 The first implementation should keep this small.
@@ -154,6 +175,24 @@ A traceable run should include:
 - `started_at`
 - `finished_at`
 
+And the first usage model should also include:
+
+- `input_tokens`
+- `output_tokens`
+- `total_tokens`
+- `estimated_input_cost`
+- `estimated_output_cost`
+- `estimated_total_cost`
+- `pricing_key`
+
+The important rule is:
+
+token and money calculation belong in the execution core, not in the monitoring UI.
+
+The runner or usage core should compute them.
+
+Monitoring should only display and aggregate them.
+
 That is enough to correlate most system behavior.
 
 ## The Minimum Operator Surfaces
@@ -167,6 +206,25 @@ The first operator-facing features should be:
 - cancel one active run
 
 That already gives the OS a real operational backbone.
+
+For the early local CLI path, the first concrete operator surfaces can start even smaller:
+
+- `/routes`
+- `/runs`
+- `/session`
+- `/sessions`
+
+Those commands are enough to verify:
+
+- which front-door thread is bound to which session
+- which hosted agent handled recent turns
+- which trace id and session id belonged to each run
+
+The next meaningful operator metrics after that should be:
+
+- tokens per run
+- money per run
+- aggregate token and money totals per team and per agent
 
 ## Why This Must Be A First-Class Requirement
 
