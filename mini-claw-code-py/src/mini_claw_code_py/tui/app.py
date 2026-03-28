@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 
 from mini_claw_code_py import (
+    ChannelRegistry,
     HarnessAgent,
     HostedAgentFactory,
     HostedAgentRegistry,
@@ -28,8 +29,22 @@ from mini_claw_code_py import (
 from .console import ConsoleUI
 
 
-CLI_TARGET_AGENT = "superagent"
-CLI_THREAD_KEY = "cli:local"
+CLI_CHANNEL_NAME = "cli"
+CLI_THREAD_SUFFIX = "local"
+
+
+def resolve_cli_route(
+    *,
+    cwd: Path,
+    home: Path,
+    teams: TeamRegistry | None = None,
+    channels: ChannelRegistry | None = None,
+) -> tuple[ChannelRegistry, str, str]:
+    registry = channels or ChannelRegistry.discover_default(cwd=cwd, home=home)
+    channel = registry.require(CLI_CHANNEL_NAME)
+    target_agent = channel.resolve_target_agent(teams)
+    thread_key = channel.resolve_thread_key(CLI_THREAD_SUFFIX)
+    return registry, target_agent, thread_key
 
 
 def build_agent(
@@ -38,10 +53,11 @@ def build_agent(
     cwd: Path,
     input_queue: "asyncio.Queue[UserInputRequest]",
     home: Path | None = None,
+    target_agent: str | None = None,
 ) -> HarnessAgent:
     resolved_home = Path.home() if home is None else Path(home)
     registry = HostedAgentRegistry.discover_default(cwd=cwd, home=resolved_home)
-    definition = registry.require("superagent")
+    definition = registry.require(target_agent or "superagent")
     return HostedAgentFactory(
         provider=provider,
         home=resolved_home,
@@ -57,6 +73,7 @@ async def run_cli(*, cwd: Path | None = None) -> None:
     router = SessionRouter(default_route_store(workspace), store)
     runs = RunStore(default_os_state_root(workspace))
     teams = TeamRegistry.discover_default(cwd=workspace, home=Path.home())
+    channels, cli_target_agent, cli_thread_key = resolve_cli_route(cwd=workspace, home=Path.home(), teams=teams)
     goals = GoalStore(default_os_state_root(workspace))
     tasks = TaskStore(default_os_state_root(workspace))
     session_work = SessionWorkStore(default_os_state_root(workspace))
@@ -79,10 +96,10 @@ async def run_cli(*, cwd: Path | None = None) -> None:
         session_work=session_work,
     )
 
-    agent = build_agent(provider, cwd=workspace, input_queue=input_queue)
+    agent = build_agent(provider, cwd=workspace, input_queue=input_queue, target_agent=cli_target_agent)
     current_route, current_session = router.resolve_or_create(
-        target_agent=CLI_TARGET_AGENT,
-        thread_key=CLI_THREAD_KEY,
+        target_agent=cli_target_agent,
+        thread_key=cli_thread_key,
         cwd=workspace,
     )
     history = store.restore_into_agent(agent, current_session)
@@ -207,7 +224,13 @@ async def _handle_command(
         ui.print_subagents(agent)
         return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/agents":
-        ui.print_agents(HostedAgentRegistry.discover_default(cwd=workspace, home=Path.home()), current_agent="superagent")
+        ui.print_agents(
+            HostedAgentRegistry.discover_default(cwd=workspace, home=Path.home()),
+            current_agent=current_route.target_agent,
+        )
+        return True, agent, current_route, current_session, history, plan_mode
+    if prompt == "/channels":
+        ui.print_channels(ChannelRegistry.discover_default(cwd=workspace, home=Path.home()))
         return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/teams":
         ui.print_teams(TeamRegistry.discover_default(cwd=workspace, home=Path.home()))
@@ -302,7 +325,12 @@ async def _handle_command(
     if prompt == "/new":
         await agent.flush_memory_updates()
         ui.drain_notice_queue(agent.notice_queue())
-        agent = build_agent(provider, cwd=workspace, input_queue=input_queue)
+        agent = build_agent(
+            provider,
+            cwd=workspace,
+            input_queue=input_queue,
+            target_agent=current_route.target_agent,
+        )
         history = []
         current_session = store.persist(store.create(cwd=workspace))
         current_route = router.bind(
@@ -408,7 +436,12 @@ async def _resume_session(
         return True, agent, current_route, current_session, history, plan_mode
     await agent.flush_memory_updates()
     ui.drain_notice_queue(agent.notice_queue())
-    agent = build_agent(provider, cwd=record.cwd, input_queue=input_queue)
+    agent = build_agent(
+        provider,
+        cwd=record.cwd,
+        input_queue=input_queue,
+        target_agent=current_route.target_agent,
+    )
     history = store.restore_into_agent(agent, record)
     current_session = record
     current_route = router.bind(

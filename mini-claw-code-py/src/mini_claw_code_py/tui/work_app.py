@@ -13,6 +13,7 @@ from textual.widgets import Footer, Header, Input, RichLog, Static
 from mini_claw_code_py import (
     AgentApprovalUpdate,
     AgentArtifactUpdate,
+    ChannelRegistry,
     AgentContextCompaction,
     AgentDone,
     AgentError,
@@ -45,12 +46,11 @@ from mini_claw_code_py import (
 )
 
 from .app import (
-    CLI_TARGET_AGENT,
-    CLI_THREAD_KEY,
     _resume_session,
     _save_session,
     _shutdown,
     build_agent,
+    resolve_cli_route,
 )
 from .console import (
     ConsoleUI,
@@ -142,6 +142,11 @@ class WorkApp(App[None]):
         self.router = SessionRouter(default_route_store(self.cwd), self.store)
         self.runs = RunStore(default_os_state_root(self.cwd))
         self.teams = TeamRegistry.discover_default(cwd=self.cwd, home=self.home)
+        self.channels, self.cli_target_agent, self.cli_thread_key = resolve_cli_route(
+            cwd=self.cwd,
+            home=self.home,
+            teams=self.teams,
+        )
         self.goals = GoalStore(default_os_state_root(self.cwd))
         self.tasks = TaskStore(default_os_state_root(self.cwd))
         self.session_work = SessionWorkStore(default_os_state_root(self.cwd))
@@ -168,6 +173,7 @@ class WorkApp(App[None]):
             cwd=self.cwd,
             input_queue=self.input_queue,
             home=self.home,
+            target_agent=self.cli_target_agent,
         )
         self.current_route: SessionRoute
         self.current_session: SessionRecord
@@ -193,8 +199,8 @@ class WorkApp(App[None]):
 
     def on_mount(self) -> None:
         self.current_route, self.current_session = self.router.resolve_or_create(
-            target_agent=CLI_TARGET_AGENT,
-            thread_key=CLI_THREAD_KEY,
+            target_agent=self.cli_target_agent,
+            thread_key=self.cli_thread_key,
             cwd=self.cwd,
         )
         self.history = self.store.restore_into_agent(self.agent, self.current_session)
@@ -289,6 +295,9 @@ class WorkApp(App[None]):
                 current_agent=self.current_route.target_agent,
             )
             return
+        if prompt == "/channels":
+            self._append_rendered("Channels", "print_channels", self.channels)
+            return
         if prompt == "/teams":
             self._append_rendered("Teams", "print_teams", self.teams)
             return
@@ -364,6 +373,7 @@ class WorkApp(App[None]):
                 cwd=self.cwd,
                 input_queue=self.input_queue,
                 home=self.home,
+                target_agent=self.current_route.target_agent,
             )
             self.history = []
             self.current_session = self.store.persist(self.store.create(cwd=self.cwd))

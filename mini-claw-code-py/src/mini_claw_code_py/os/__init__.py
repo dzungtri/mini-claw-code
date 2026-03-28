@@ -18,6 +18,14 @@ from .background import (
 )
 from .bus import MessageBus
 from .control import RunControlRecord, RunControlStore
+from .channels import (
+    CHANNEL_CONFIG_FILE_NAME,
+    ChannelDefinition,
+    ChannelRegistry,
+    default_channel_config_paths,
+    default_cli_channel,
+    parse_channel_registry,
+)
 from .envelopes import (
     EventEnvelope,
     MessageEnvelope,
@@ -60,7 +68,10 @@ from .work import (
 
 __all__ = [
     "AGENT_REGISTRY_FILE_NAME",
+    "CHANNEL_CONFIG_FILE_NAME",
     "CRON_FILE_NAME",
+    "ChannelDefinition",
+    "ChannelRegistry",
     "EventEnvelope",
     "GatewayService",
     "GatewaySession",
@@ -107,12 +118,15 @@ __all__ = [
     "CronService",
     "CronStore",
     "default_agent_registry_paths",
+    "default_channel_config_paths",
+    "default_cli_channel",
     "default_os_state_root",
     "default_route_store",
     "default_superagent_definition",
     "default_team_config_paths",
     "default_team_definition",
     "parse_agent_registry",
+    "parse_channel_registry",
     "parse_team_registry",
     "heartbeat_has_actionable_work",
     "utc_now_iso",

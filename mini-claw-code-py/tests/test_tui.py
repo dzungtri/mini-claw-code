@@ -82,6 +82,7 @@ def test_tui_print_help_lists_core_commands() -> None:
     assert "/mcp" in rendered
     assert "/subagents" in rendered
     assert "/agents" in rendered
+    assert "/channels" in rendered
     assert "/teams" in rendered
     assert "/work" in rendered
     assert "/goals" in rendered
@@ -300,6 +301,59 @@ def test_tui_handle_command_teams_prints_team_registry(tmp_path: Path) -> None:
     assert "Teams" in rendered
     assert "default" in rendered
     assert "product-a" in rendered
+
+
+def test_tui_handle_command_channels_prints_channel_registry(tmp_path: Path) -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+    store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    runs = RunStore(tmp_path / ".mini-claw" / "os")
+    router = SessionRouter(default_route_store(tmp_path), store)
+    current_session = store.create(cwd=tmp_path)
+    current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
+    (tmp_path / ".channels.json").write_text(
+        (
+            '{\n'
+            '  "channels": {\n'
+            '    "telegram": {\n'
+            '      "description": "Telegram front door.",\n'
+            '      "default_target_agent": "superagent",\n'
+            '      "thread_prefix": "tg"\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    class DummyAgent:
+        def subagent_profile_registry(self) -> SubagentProfileRegistry:
+            return SubagentProfileRegistry({})
+
+    async def run() -> tuple[bool, object, object, object, list[Message], bool]:
+        return await _handle_command(
+            prompt="/channels",
+            provider=None,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            input_queue=asyncio.Queue(),
+            store=store,
+            router=router,
+            runs=runs,
+            agent=DummyAgent(),  # type: ignore[arg-type]
+            current_route=current_route,
+            current_session=current_session,
+            history=[],
+            plan_mode=False,
+            ui=ui,
+        )
+
+    handled, _, _, _, _, _ = asyncio.run(run())
+
+    rendered = console.export_text()
+    assert handled is True
+    assert "Channels" in rendered
+    assert "cli" in rendered
+    assert "telegram" in rendered
 
 
 def test_tui_handle_command_routes_prints_route_store(tmp_path: Path) -> None:

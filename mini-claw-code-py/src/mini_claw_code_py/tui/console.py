@@ -57,6 +57,7 @@ DEFAULT_COMMAND_ROWS: Final[tuple[tuple[str, str], ...]] = (
     ("/mcp", "show connected MCP catalog"),
     ("/subagents", "show loaded subagent profiles"),
     ("/agents", "show hosted agents from the registry"),
+    ("/channels", "show discovered channel definitions"),
     ("/teams", "show discovered teams"),
     ("/work", "show the current session work binding"),
     ("/goals", "show tracked OS goals"),
@@ -272,6 +273,9 @@ class ConsoleUI:
 
     def print_agents(self, registry: object, *, current_agent: str | None = None) -> None:
         self._print_lines_panel("Hosted Agents", registry.render(current_agent=current_agent).splitlines())
+
+    def print_channels(self, registry: object) -> None:
+        self._print_lines_panel("Channels", registry.render().splitlines())
 
     def print_teams(self, registry: object) -> None:
         self._print_lines_panel("Teams", registry.render().splitlines())

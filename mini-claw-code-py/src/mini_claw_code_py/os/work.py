@@ -21,12 +21,15 @@ class TeamDefinition:
     description: str
     lead_agent: str
     member_agents: tuple[str, ...]
+    workspace_root: Path | None = None
 
     def __post_init__(self) -> None:
         self.name = self.name.strip()
         self.description = " ".join(self.description.split()).strip() or f"Team {self.name}"
         self.lead_agent = self.lead_agent.strip()
         self.member_agents = tuple(agent.strip() for agent in self.member_agents if agent.strip())
+        if self.workspace_root is not None:
+            self.workspace_root = Path(self.workspace_root).expanduser().resolve()
         if not self.name:
             raise ValueError("team name cannot be empty")
         if not self.lead_agent:
@@ -83,6 +86,8 @@ class TeamRegistry:
             lines.append(f"- {team.name}: {team.description}")
             lines.append(f"  lead={team.lead_agent}")
             lines.append(f"  members={', '.join(team.member_agents)}")
+            if team.workspace_root is not None:
+                lines.append(f"  workspace={team.workspace_root}")
         return "\n".join(lines)
 
     def team_for_agent(self, agent_name: str) -> TeamDefinition:
@@ -715,6 +720,8 @@ def _parse_team_registry_raw(path: str | Path) -> dict[str, dict[str, object]]:
             if not isinstance(member_agents, list) and not isinstance(member_agents, tuple):
                 raise ValueError(f"member_agents must be a list: {name}")
             normalized["member_agents"] = tuple(str(agent) for agent in member_agents)
+        if "workspace_root" in value:
+            normalized["workspace_root"] = _resolve_team_registry_path(value["workspace_root"], base_dir=config_path.parent)
         parsed[name.strip()] = normalized
     return parsed
 
@@ -727,4 +734,14 @@ def _team_from_raw(name: str, raw: Mapping[str, object]) -> TeamDefinition:
         description=str(raw.get("description", f"Team {name}")),
         lead_agent=lead_agent,
         member_agents=tuple(member_agents_raw),  # type: ignore[arg-type]
+        workspace_root=raw.get("workspace_root"),  # type: ignore[arg-type]
     )
+
+
+def _resolve_team_registry_path(raw: object, *, base_dir: Path) -> Path:
+    if not isinstance(raw, str):
+        raise ValueError("workspace_root must be a string")
+    candidate = Path(raw).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+    return (base_dir / candidate).resolve()
