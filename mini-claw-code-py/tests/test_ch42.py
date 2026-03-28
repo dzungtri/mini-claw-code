@@ -66,6 +66,16 @@ def test_ch42_gateway_session_store_creates_and_updates_sessions(tmp_path: Path)
     assert store.get(session.gateway_session_id) == updated
 
 
+def test_ch42_gateway_session_store_normalizes_blank_mode_to_default(tmp_path: Path) -> None:
+    store = GatewaySessionStore(tmp_path / ".mini-claw" / "os")
+
+    session = store.create(source="zed", target_agent="superagent", mode="   ")
+    updated = store.update(session.gateway_session_id, mode="  ")
+
+    assert session.mode == "default"
+    assert updated.mode == "default"
+
+
 def test_ch42_gateway_service_runs_messages_through_bus_and_runner(tmp_path: Path) -> None:
     (tmp_path / "home").mkdir()
     bus = MessageBus()
@@ -125,3 +135,61 @@ def test_ch42_gateway_service_reuses_routed_harness_session_across_messages(tmp_
     assert first.gateway_session.gateway_session_id == second.gateway_session.gateway_session_id
     assert first.runner_result.context.session.id == second.runner_result.context.session.id
     assert first.runner_result.context.run.task_id == second.runner_result.context.run.task_id
+
+
+def test_ch42_gateway_service_applies_updated_session_mode_and_model_to_later_turns(tmp_path: Path) -> None:
+    (tmp_path / "home").mkdir()
+    bus = MessageBus()
+    provider = MockStreamProvider(
+        deque(
+            [
+                AssistantTurn(text="First.", tool_calls=[], stop_reason=StopReason.STOP),
+                AssistantTurn(text="Second.", tool_calls=[], stop_reason=StopReason.STOP),
+            ]
+        )
+    )
+    runner = _build_gateway_runner(tmp_path, provider=provider, bus=bus)
+    service = GatewayService(
+        sessions=GatewaySessionStore(default_os_state_root(tmp_path)),
+        runner=runner,
+        bus=bus,
+    )
+
+    async def run() -> tuple[object, object]:
+        gateway_session = service.open_session(source="zed", target_agent="superagent", mode="default", model="")
+        first = await service.send_user_message(gateway_session.gateway_session_id, "First prompt.")
+        service.set_session_mode(gateway_session.gateway_session_id, "review")
+        service.set_session_model(gateway_session.gateway_session_id, "gpt-5")
+        second = await service.send_user_message(gateway_session.gateway_session_id, "Second prompt.")
+        return first, second
+
+    first, second = asyncio.run(run())
+
+    assert first.runner_result.context.envelope.metadata["mode"] == "default"
+    assert first.runner_result.context.envelope.metadata["model"] == ""
+    assert second.runner_result.context.envelope.metadata["mode"] == "review"
+    assert second.runner_result.context.envelope.metadata["model"] == "gpt-5"
+    assert first.runner_result.context.session.id == second.runner_result.context.session.id
+
+
+def test_ch42_gateway_service_rejects_unknown_session_id(tmp_path: Path) -> None:
+    (tmp_path / "home").mkdir()
+    service = GatewayService(
+        sessions=GatewaySessionStore(default_os_state_root(tmp_path)),
+        runner=_build_gateway_runner(
+            tmp_path,
+            provider=MockStreamProvider(deque()),
+            bus=MessageBus(),
+        ),
+        bus=MessageBus(),
+    )
+
+    async def run() -> None:
+        await service.send_user_message("gws_missing", "Hello")
+
+    try:
+        asyncio.run(run())
+    except KeyError as exc:
+        assert "unknown gateway session" in str(exc)
+    else:
+        raise AssertionError("expected KeyError for unknown gateway session")

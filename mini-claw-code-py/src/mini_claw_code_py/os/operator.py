@@ -22,8 +22,8 @@ class OperatorSummary:
 @dataclass(slots=True)
 class OperatorSnapshot:
     summary: OperatorSummary
-    agents: list[object]
-    teams: list[object]
+    agents: list["AgentStatusView"]
+    teams: list["TeamStatusView"]
     routes: list[SessionRoute]
     runs: list[RunRecord]
     sessions: list[SessionRecord]

@@ -10,6 +10,11 @@ from .runner import RunnerResult, TurnRunner
 from .work import _read_store, _write_store
 
 
+def _normalize_mode(value: str) -> str:
+    normalized = value.strip()
+    return normalized or "default"
+
+
 @dataclass(slots=True)
 class GatewaySession:
     gateway_session_id: str
@@ -26,7 +31,7 @@ class GatewaySession:
         self.source = self.source.strip()
         self.target_agent = self.target_agent.strip()
         self.thread_key = self.thread_key.strip()
-        self.mode = self.mode.strip()
+        self.mode = _normalize_mode(self.mode)
         self.model = self.model.strip()
         if not self.gateway_session_id:
             raise ValueError("gateway_session_id cannot be empty")
@@ -66,7 +71,7 @@ class GatewaySessionStore:
             source=source,
             target_agent=target_agent,
             thread_key=thread_key or f"gateway:{gateway_session_id}",
-            mode=mode,
+            mode=_normalize_mode(mode),
             model=model,
             created_at=now,
             updated_at=now,
@@ -101,7 +106,7 @@ class GatewaySessionStore:
                 source=record.source,
                 target_agent=record.target_agent,
                 thread_key=record.thread_key,
-                mode=record.mode if mode is None else mode.strip(),
+                mode=record.mode if mode is None else _normalize_mode(mode),
                 model=record.model if model is None else model.strip(),
                 created_at=record.created_at,
                 updated_at=utc_now_iso(),

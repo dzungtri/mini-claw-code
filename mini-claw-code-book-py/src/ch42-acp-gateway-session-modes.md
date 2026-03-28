@@ -139,6 +139,10 @@ That is still valuable because it establishes:
 - the persistence model
 - the future transport contract
 
+In the first local slice, the gateway should also normalize empty mode values back to `default`.
+
+That keeps the session contract stable even before we add richer protocol validation.
+
 ## Architecture
 
 The first shape should include:
@@ -155,6 +159,14 @@ The important design rule is:
 - ACP creates and controls sessions
 - the runner executes turns
 - the harness remains the execution engine
+
+The current implemented path also reuses the same routed harness session across multiple messages in one gateway session.
+
+That means:
+
+- gateway session identity stays stable
+- routed harness `session_id` stays stable
+- front-door task binding stays stable
 
 So ACP wraps the OS.
 

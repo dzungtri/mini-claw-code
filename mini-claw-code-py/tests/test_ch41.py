@@ -220,3 +220,42 @@ def test_ch41_turn_runner_publishes_bus_events_and_outbound_message(tmp_path: Pa
         "outbound_message",
         "run_finished",
     ]
+
+
+def test_ch41_turn_runner_can_consume_directly_from_bus(tmp_path: Path) -> None:
+    (tmp_path / "home").mkdir()
+    provider = MockStreamProvider(
+        deque(
+            [
+                AssistantTurn(text="Bus path reply.", tool_calls=[], stop_reason=StopReason.STOP),
+            ]
+        )
+    )
+    bus = MessageBus()
+    runner = _build_runner(tmp_path, provider=provider, bus=bus)
+    envelope = MessageEnvelope(
+        source="gateway",
+        target_agent="superagent",
+        thread_key="gateway:demo",
+        kind="user_message",
+        content="Handle this through the bus.",
+        trace_id="trace_bus_demo",
+        metadata={"mode": "review", "model": "gpt-5"},
+    )
+
+    async def run() -> tuple[object, object]:
+        await bus.publish_inbound(envelope)
+        result = await runner.run_from_bus()
+        outbound = await bus.consume_outbound()
+        return result, outbound
+
+    result, outbound = asyncio.run(run())
+
+    assert result.reply_text == "Bus path reply."
+    assert result.context.envelope.trace_id == "trace_bus_demo"
+    assert result.context.envelope.metadata["mode"] == "review"
+    assert result.context.envelope.metadata["model"] == "gpt-5"
+    assert result.context.run.source == "gateway"
+    assert result.context.run.thread_key == "gateway:demo"
+    assert outbound.trace_id == "trace_bus_demo"
+    assert outbound.parent_run_id == result.context.run.run_id

@@ -229,6 +229,16 @@ It works well for:
 
 It is not yet a networked control plane.
 
+The important implementation detail is that we now support both local execution entries through the same runner:
+
+- direct local path:
+  - `TurnRunner.run(envelope)`
+- bus-mediated local path:
+  - `MessageBus.publish_inbound(...)`
+  - `TurnRunner.run_from_bus()`
+
+That keeps the execution spine stable while we add gateways and remote transports later.
+
 ## Message Conversion
 
 The runner needs one small translation step:
