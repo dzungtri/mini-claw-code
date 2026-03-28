@@ -1,4 +1,14 @@
-from .config import HarnessConfig, WorkspacePathsConfig, apply_harness_config, default_harness_config
+from .config import (
+    CONFIG_FILE_NAME,
+    CONFIG_PATH_ENV,
+    CONTROL_PROFILE_ENV,
+    HarnessConfig,
+    WorkspacePathsConfig,
+    apply_harness_config,
+    default_harness_config,
+    default_harness_config_paths,
+    load_harness_config,
+)
 from .context import (
     ARCHIVED_CONTEXT_CLOSE,
     ARCHIVED_CONTEXT_OPEN,
@@ -165,8 +175,11 @@ __all__ = [
     "AssistantTurn",
     "BashTool",
     "ChannelInputHandler",
+    "CONFIG_FILE_NAME",
+    "CONFIG_PATH_ENV",
     "CONTROL_PLANE_PROMPT_SECTION",
     "CONTROL_PLANE_PROFILES",
+    "CONTROL_PROFILE_ENV",
     "CliInputHandler",
     "ContextCompactionResult",
     "ContextCompactionSettings",
@@ -249,6 +262,7 @@ __all__ = [
     "control_plane_profile",
     "create_session_id",
     "default_harness_config",
+    "default_harness_config_paths",
     "default_mcp_config_paths",
     "default_memory_sources",
     "default_skill_roots",
@@ -260,6 +274,7 @@ __all__ = [
     "is_within_workspace",
     "latest_memory_exchange",
     "load_prompt_template",
+    "load_harness_config",
     "load_memory_sources",
     "merge_learned_memory_lines",
     "parse_mcp_config",

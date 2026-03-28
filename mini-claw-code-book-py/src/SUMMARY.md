@@ -36,7 +36,7 @@
 - [Chapter 28: Runtime Surfaces](./ch28-runtime-surfaces.md)
 - [Chapter 29: Session Persistence and Resume](./ch29-session-persistence.md)
 - [Chapter 30: Session Archive and Export](./ch30-session-archive-export.md)
-- [Chapter 31: Config Files and Runtime Profiles (coming soon)](./ch31-config-runtime-profiles.md)
+- [Chapter 31: Config Files and Runtime Profiles](./ch31-config-runtime-profiles.md)
 - [Chapter 32: Artifact and Output Management (coming soon)](./ch32-artifact-output-management.md)
 - [Chapter 33: Advanced Control Policies (coming soon)](./ch33-advanced-control-policies.md)
 - [Chapter 34: MCP Resources and Prompt Surfaces (coming soon)](./ch34-mcp-resources-prompts.md)

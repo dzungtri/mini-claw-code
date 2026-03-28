@@ -15,7 +15,7 @@ from mini_claw_code_py import (
     SessionStore,
     UserInputRequest,
     apply_harness_config,
-    default_harness_config,
+    load_harness_config,
     load_prompt_template,
     render_system_prompt,
 )
@@ -41,7 +41,7 @@ def build_agent(
         cwd=cwd,
     )
     agent = HarnessAgent(provider).system_prompt(system_prompt).plan_prompt(plan_prompt)
-    config = default_harness_config(cwd=cwd, home=Path.home())
+    config = load_harness_config(cwd=cwd, home=Path.home())
     apply_harness_config(
         agent,
         config,
