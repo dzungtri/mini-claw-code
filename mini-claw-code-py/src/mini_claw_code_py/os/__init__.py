@@ -7,6 +7,15 @@ from .agent_registry import (
     default_superagent_definition,
     parse_agent_registry,
 )
+from .background import (
+    CRON_FILE_NAME,
+    HEARTBEAT_FILE_NAME,
+    CronJob,
+    CronStore,
+    CronService,
+    HeartbeatService,
+    heartbeat_has_actionable_work,
+)
 from .bus import MessageBus
 from .control import RunControlRecord, RunControlStore
 from .envelopes import (
@@ -51,6 +60,7 @@ from .work import (
 
 __all__ = [
     "AGENT_REGISTRY_FILE_NAME",
+    "CRON_FILE_NAME",
     "EventEnvelope",
     "GatewayService",
     "GatewaySession",
@@ -59,6 +69,8 @@ __all__ = [
     "HostedAgentDefinition",
     "HostedAgentFactory",
     "HostedAgentRegistry",
+    "HeartbeatService",
+    "HEARTBEAT_FILE_NAME",
     "MessageBus",
     "RunControlRecord",
     "RunControlStore",
@@ -91,6 +103,9 @@ __all__ = [
     "TeamRegistry",
     "create_envelope_id",
     "create_trace_id",
+    "CronJob",
+    "CronService",
+    "CronStore",
     "default_agent_registry_paths",
     "default_os_state_root",
     "default_route_store",
@@ -99,5 +114,6 @@ __all__ = [
     "default_team_definition",
     "parse_agent_registry",
     "parse_team_registry",
+    "heartbeat_has_actionable_work",
     "utc_now_iso",
 ]
