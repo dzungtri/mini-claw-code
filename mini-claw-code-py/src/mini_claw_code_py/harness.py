@@ -217,6 +217,13 @@ class HarnessAgent:
     def artifact_catalog(self) -> ArtifactCatalog:
         return self._artifact_catalog
 
+    def estimate_context_pressure_percent(self, history: list[Message]) -> int:
+        budget = self._context_settings.max_estimated_tokens
+        if budget is None or budget <= 0:
+            return 0
+        used = estimate_messages_tokens(history)
+        return max(0, min(100, int(round((used / budget) * 100))))
+
     def mcp_catalog(self) -> MCPCatalog:
         return self._mcp_catalog
 

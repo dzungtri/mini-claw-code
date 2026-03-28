@@ -98,6 +98,7 @@ async def run_cli(*, cwd: Path | None = None) -> None:
                 input_queue=input_queue,
                 store=store,
                 router=router,
+                runs=runs,
                 agent=agent,
                 current_route=current_route,
                 current_session=current_session,
@@ -156,6 +157,7 @@ async def _handle_command(
     input_queue: "asyncio.Queue[UserInputRequest]",
     store: SessionStore,
     router: SessionRouter,
+    runs: RunStore,
     agent: HarnessAgent,
     current_route: SessionRoute,
     current_session: SessionRecord,
@@ -190,6 +192,12 @@ async def _handle_command(
         return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/teams":
         ui.print_teams(TeamRegistry.discover_default(cwd=workspace, home=Path.home()))
+        return True, agent, current_route, current_session, history, plan_mode
+    if prompt == "/routes":
+        ui.print_routes(router.routes)
+        return True, agent, current_route, current_session, history, plan_mode
+    if prompt == "/runs":
+        ui.print_runs(runs)
         return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/session":
         ui.print_session_status(current_session, route=current_route)
@@ -253,7 +261,7 @@ async def _handle_command(
         ui.drain_notice_queue(agent.notice_queue())
         agent = build_agent(provider, cwd=workspace, input_queue=input_queue)
         history = []
-        current_session = store.create(cwd=workspace)
+        current_session = store.persist(store.create(cwd=workspace))
         current_route = router.bind(
             target_agent=current_route.target_agent,
             thread_key=current_route.thread_key,

@@ -15,6 +15,13 @@ from .envelopes import (
     create_trace_id,
     utc_now_iso,
 )
+from .operator import (
+    AgentStatusView,
+    OperatorService,
+    OperatorSnapshot,
+    OperatorSummary,
+    TeamStatusView,
+)
 from .session_router import RouteStore, SessionRoute, SessionRouter, default_route_store
 from .runner import RunnerContext, RunnerResult, TurnRunner
 from .work import (
@@ -45,6 +52,10 @@ __all__ = [
     "HostedAgentRegistry",
     "MessageBus",
     "MessageEnvelope",
+    "AgentStatusView",
+    "OperatorService",
+    "OperatorSnapshot",
+    "OperatorSummary",
     "RouteStore",
     "RunnerContext",
     "RunnerResult",
@@ -61,6 +72,7 @@ __all__ = [
     "RunStore",
     "TaskRecord",
     "TaskStore",
+    "TeamStatusView",
     "TeamDefinition",
     "TeamRegistry",
     "create_envelope_id",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from dataclasses import dataclass
 
 from .types import AssistantTurn, Message, ToolDefinition
@@ -26,6 +27,24 @@ class TokenUsageSnapshot:
             f"total~{self.total_tokens}, "
             f"session~{session_total_tokens}"
         )
+
+
+@dataclass(slots=True)
+class PricingProfile:
+    key: str
+    provider_name: str
+    model_name: str
+    input_cost_per_million_usd: float
+    output_cost_per_million_usd: float
+
+    def input_cost(self, tokens: int) -> float:
+        return estimate_cost_usd(tokens=tokens, cost_per_million_usd=self.input_cost_per_million_usd)
+
+    def output_cost(self, tokens: int) -> float:
+        return estimate_cost_usd(tokens=tokens, cost_per_million_usd=self.output_cost_per_million_usd)
+
+    def total_cost(self, *, prompt_tokens: int, completion_tokens: int) -> float:
+        return self.input_cost(prompt_tokens) + self.output_cost(completion_tokens)
 
 
 class TokenUsageTracker:
@@ -121,6 +140,26 @@ def estimate_text_tokens(text: str) -> int:
     return max(1, math.ceil(len(text) / 4) + 4)
 
 
+def estimate_cost_usd(*, tokens: int, cost_per_million_usd: float) -> float:
+    if tokens <= 0 or cost_per_million_usd <= 0:
+        return 0.0
+    return (tokens / 1_000_000.0) * cost_per_million_usd
+
+
+def resolve_pricing_profile(provider: object, env: dict[str, str] | None = None) -> PricingProfile:
+    environ = os.environ if env is None else env
+    provider_name = provider.__class__.__name__
+    model_name = getattr(provider, "model", "") or "unknown"
+    key = environ.get("MINI_CLAW_PRICING_KEY", "").strip() or f"{provider_name}:{model_name}"
+    return PricingProfile(
+        key=key,
+        provider_name=provider_name,
+        model_name=model_name,
+        input_cost_per_million_usd=_coerce_float(environ.get("MINI_CLAW_INPUT_COST_PER_MILLION_USD"), 0.0),
+        output_cost_per_million_usd=_coerce_float(environ.get("MINI_CLAW_OUTPUT_COST_PER_MILLION_USD"), 0.0),
+    )
+
+
 def _assistant_turn_blob(turn: AssistantTurn) -> str:
     parts: list[str] = []
     if turn.text:
@@ -129,3 +168,15 @@ def _assistant_turn_blob(turn: AssistantTurn) -> str:
         parts.append(call.name)
         parts.append(json.dumps(call.arguments, sort_keys=True, ensure_ascii=True, default=str))
     return "\n".join(parts)
+
+
+def _coerce_float(value: str | None, default: float) -> float:
+    if value is None:
+        return default
+    stripped = value.strip()
+    if not stripped:
+        return default
+    try:
+        return float(stripped)
+    except ValueError:
+        return default

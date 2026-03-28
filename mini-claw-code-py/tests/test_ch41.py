@@ -2,6 +2,8 @@ import asyncio
 from collections import deque
 from pathlib import Path
 
+import pytest
+
 from mini_claw_code_py import (
     HostedAgentFactory,
     HostedAgentRegistry,
@@ -42,8 +44,14 @@ def _build_runner(
     )
 
 
-def test_ch41_turn_runner_executes_one_envelope_and_persists_run_and_session(tmp_path: Path) -> None:
+def test_ch41_turn_runner_executes_one_envelope_and_persists_run_and_session(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     (tmp_path / "home").mkdir()
+    monkeypatch.setenv("MINI_CLAW_INPUT_COST_PER_MILLION_USD", "3")
+    monkeypatch.setenv("MINI_CLAW_OUTPUT_COST_PER_MILLION_USD", "5")
+    monkeypatch.setenv("MINI_CLAW_PRICING_KEY", "test/openrouter")
     provider = MockStreamProvider(
         deque(
             [
@@ -75,6 +83,20 @@ def test_ch41_turn_runner_executes_one_envelope_and_persists_run_and_session(tmp
     assert result.outbound.target_agent == "cli"
     assert result.outbound.parent_run_id == result.context.run.run_id
     assert result.context.run.status == "completed"
+    assert result.context.run.source == "cli"
+    assert result.context.run.thread_key == "cli:local"
+    assert result.context.run.total_tokens > 0
+    assert result.context.run.estimated_total_cost_usd > 0
+    assert result.context.run.pricing_key == "test/openrouter"
+    assert result.context.run.estimated_input_cost_usd == pytest.approx(
+        result.context.run.prompt_tokens * 3 / 1_000_000
+    )
+    assert result.context.run.estimated_output_cost_usd == pytest.approx(
+        result.context.run.completion_tokens * 5 / 1_000_000
+    )
+    assert result.context.run.estimated_total_cost_usd == pytest.approx(
+        result.context.run.estimated_input_cost_usd + result.context.run.estimated_output_cost_usd
+    )
     assert (default_os_state_root(tmp_path) / "runs.json").exists()
     assert (tmp_path / ".mini-claw" / "sessions" / result.context.session.id / "session.json").exists()
 

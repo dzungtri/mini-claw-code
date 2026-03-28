@@ -124,6 +124,8 @@ def test_ch39_goal_task_and_run_stores_are_file_backed_and_filterable(tmp_path: 
     run = runs.start(
         task_id=task.task_id,
         agent_name="backend-dev",
+        source="cli",
+        thread_key="cli:local",
         session_id="sess_demo",
         trace_id="trace_demo",
     )
@@ -133,6 +135,8 @@ def test_ch39_goal_task_and_run_stores_are_file_backed_and_filterable(tmp_path: 
     assert runs.get(run.run_id) is not None
     assert [record.task_id for record in tasks.list(goal_id=goal.goal_id)] == [task.task_id]
     assert [record.run_id for record in runs.list(task_id=task.task_id)] == [run.run_id]
+    assert run.source == "cli"
+    assert run.thread_key == "cli:local"
 
     completed_goal = goals.update_status(goal.goal_id, "completed")
     blocked_task = tasks.update_status(task.task_id, "blocked")

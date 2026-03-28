@@ -4,6 +4,8 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from ..events import AgentContextCompaction, AgentDone, AgentError, AgentSubagentUpdate, AgentToolCall
+from ..telemetry import resolve_pricing_profile
 from ..types import Message
 from .agent_registry import HostedAgentFactory, HostedAgentRegistry
 from .bus import MessageBus
@@ -65,10 +67,16 @@ class TurnRunner:
         agent = self.factory.build(definition)
         history = self.sessions.restore_into_agent(agent, session)
         history.append(_message_from_envelope(envelope))
+        pricing = resolve_pricing_profile(self.factory.provider)
+        turns_before = len(agent.token_usage_tracker().turns())
+        prompt_before = agent.token_usage_tracker().total_prompt_tokens()
+        completion_before = agent.token_usage_tracker().total_completion_tokens()
 
         run = self.runs.start(
             task_id=_task_id_from_envelope(envelope),
             agent_name=definition.name,
+            source=envelope.source,
+            thread_key=envelope.thread_key,
             session_id=session.id,
             trace_id=envelope.trace_id,
         )
@@ -93,8 +101,20 @@ class TurnRunner:
         )
 
         queue = event_queue if event_queue is not None else asyncio.Queue()
+        internal_queue: asyncio.Queue[object] = asyncio.Queue()
+        observer = _RunObserver()
+        relay = asyncio.create_task(_relay_events(internal_queue, queue, observer))
         try:
-            reply_text = await agent.execute(history, queue)
+            reply_text = await agent.execute(history, internal_queue)
+            await relay
+            turn_count = len(agent.token_usage_tracker().turns()) - turns_before
+            prompt_tokens = agent.token_usage_tracker().total_prompt_tokens() - prompt_before
+            completion_tokens = agent.token_usage_tracker().total_completion_tokens() - completion_before
+            total_tokens = prompt_tokens + completion_tokens
+            input_cost = pricing.input_cost(prompt_tokens)
+            output_cost = pricing.output_cost(completion_tokens)
+            total_cost = input_cost + output_cost
+            context_pressure = agent.estimate_context_pressure_percent(history)
             session = self.sessions.save_runtime(
                 session,
                 messages=history,
@@ -102,8 +122,26 @@ class TurnRunner:
                 audit_entries=agent.audit_log().entries(),
                 token_usage=agent.token_usage_tracker().turns(),
             )
-            run = self.runs.finish(run.run_id, status="completed")
+            run = self.runs.finish(
+                run.run_id,
+                status="completed",
+                turn_count=turn_count,
+                tool_call_count=observer.tool_call_count,
+                subagent_count=observer.subagent_count,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                estimated_input_cost_usd=input_cost,
+                estimated_output_cost_usd=output_cost,
+                estimated_total_cost_usd=total_cost,
+                context_pressure_percent=context_pressure,
+                pricing_key=pricing.key,
+                provider_name=pricing.provider_name,
+                model_name=pricing.model_name,
+            )
         except Exception:
+            if not relay.done():
+                relay.cancel()
             self.runs.finish(run.run_id, status="failed")
             await self._publish_event(
                 EventEnvelope(
@@ -192,3 +230,31 @@ def _task_id_from_envelope(envelope: MessageEnvelope) -> str | None:
     if isinstance(task_id, str) and task_id.strip():
         return task_id.strip()
     return None
+
+
+class _RunObserver:
+    def __init__(self) -> None:
+        self.tool_call_count = 0
+        self.subagent_count = 0
+        self.compactions = 0
+
+    def observe(self, event: object) -> None:
+        if isinstance(event, AgentToolCall):
+            self.tool_call_count += 1
+        elif isinstance(event, AgentSubagentUpdate) and event.status == "started":
+            self.subagent_count += 1
+        elif isinstance(event, AgentContextCompaction):
+            self.compactions += 1
+
+
+async def _relay_events(
+    source: "asyncio.Queue[object]",
+    target: "asyncio.Queue[object]",
+    observer: _RunObserver,
+) -> None:
+    while True:
+        event = await source.get()
+        observer.observe(event)
+        await target.put(event)
+        if isinstance(event, AgentDone | AgentError):
+            return

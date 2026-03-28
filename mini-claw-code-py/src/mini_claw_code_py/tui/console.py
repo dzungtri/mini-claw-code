@@ -57,6 +57,8 @@ DEFAULT_COMMAND_ROWS: Final[tuple[tuple[str, str], ...]] = (
     ("/subagents", "show loaded subagent profiles"),
     ("/agents", "show hosted agents from the registry"),
     ("/teams", "show discovered teams"),
+    ("/routes", "show current session routes"),
+    ("/runs", "show recent OS runs"),
     ("/session", "show current session"),
     ("/sessions", "show recent sessions and select one to resume"),
     ("/rename <title>", "rename the current session"),
@@ -269,6 +271,12 @@ class ConsoleUI:
 
     def print_teams(self, registry: object) -> None:
         self._print_lines_panel("Teams", registry.render().splitlines())
+
+    def print_routes(self, store: object) -> None:
+        self._print_lines_panel("Routes", store.render().splitlines())
+
+    def print_runs(self, store: object) -> None:
+        self._print_lines_panel("Runs", store.render().splitlines())
 
     def print_session_status(self, session: SessionRecord, *, route: SessionRoute | None = None) -> None:
         table = Table.grid(padding=(0, 1))

@@ -1180,19 +1180,44 @@ But the long-term target should be:
 - the operator console becomes the real admin surface
 - both are backed by one operator service
 
-## What The First Implementation Should Actually Build
+## First Implementation Slice
 
-The first implementation after this design chapter should probably do:
+The first real slice in this project is intentionally smaller than the full target design.
 
-1. introduce `OperatorService`
-2. move route/run inspection behind it
-3. build a separate `make ops`
-4. add `inspect run <id>`
-5. add the first control command, likely `cancel run <id>`
+It now includes:
 
-That is a disciplined first slice.
+1. `OperatorService`
+2. a separate `make ops` entrypoint
+3. a Textual dashboard with:
+   - summary
+   - teams
+   - runs
+   - agents
+   - routes
+   - sessions
+   - alerts
+4. `/inspect run <id>` in the operator console command bar
+5. token, context, and estimated-cost monitoring in run summaries
 
-It avoids pretending we already have a full dashboard, while still moving the architecture in the right direction.
+That is enough to validate the architecture:
+
+- one operator backend
+- one dedicated operator presentation
+- one place to aggregate monitoring data
+
+It is **not** yet the full control plane for operators.
+
+Still missing after the first slice:
+
+- cancel and pause commands
+- live event drill-down per run
+- task and goal panels
+- background-service panels
+- permissions and multi-user operator roles
+
+That is a disciplined first milestone.
+
+It proves the split works without pretending we already have a full production dashboard.
 
 ## Main Design Rule
 

@@ -1,7 +1,7 @@
 UV ?= uv
 PYTHONPATH := src
 
-.PHONY: help install test chat tui cli
+.PHONY: help install test chat tui cli ops
 
 help:
 	@printf "Targets:\n"
@@ -10,6 +10,7 @@ help:
 	@printf "  make chat     - start the chat CLI\n"
 	@printf "  make tui      - start the TUI\n"
 	@printf "  make cli      - start the harness CLI\n"
+	@printf "  make ops      - start the operator console\n"
 
 install:
 	$(UV) pip install -e ".[dev]"
@@ -25,3 +26,6 @@ tui:
 
 cli:
 	PYTHONPATH=$(PYTHONPATH) $(UV) run python -m mini_claw_code_py.tui
+
+ops:
+	PYTHONPATH=$(PYTHONPATH) $(UV) run python -m mini_claw_code_py.ops

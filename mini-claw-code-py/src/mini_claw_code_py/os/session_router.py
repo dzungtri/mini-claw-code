@@ -79,6 +79,16 @@ class RouteStore:
         self._write(records)
         return created
 
+    def render(self) -> str:
+        routes = self.list()
+        if not routes:
+            return "Routes: none."
+        lines = ["Routes:"]
+        for route in routes:
+            lines.append(f"- {route.target_agent} + {route.thread_key} -> {route.session_id}")
+            lines.append(f"  updated={route.updated_at}")
+        return "\n".join(lines)
+
     def _write(self, routes: list[SessionRoute]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = self.path.with_suffix(".json.tmp")

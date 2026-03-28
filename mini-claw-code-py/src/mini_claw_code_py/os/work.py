@@ -135,18 +135,38 @@ class RunRecord:
     run_id: str
     task_id: str | None
     agent_name: str
+    source: str
+    thread_key: str
     session_id: str
     trace_id: str
     status: str
     started_at: str
     finished_at: str | None
+    turn_count: int = 0
+    tool_call_count: int = 0
+    subagent_count: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    estimated_input_cost_usd: float = 0.0
+    estimated_output_cost_usd: float = 0.0
+    estimated_total_cost_usd: float = 0.0
+    context_pressure_percent: int = 0
+    pricing_key: str = ""
+    provider_name: str = ""
+    model_name: str = ""
 
     def __post_init__(self) -> None:
         if self.task_id is not None:
             self.task_id = self.task_id.strip()
         self.agent_name = self.agent_name.strip()
+        self.source = self.source.strip()
+        self.thread_key = self.thread_key.strip()
         self.session_id = self.session_id.strip()
         self.trace_id = self.trace_id.strip()
+        self.pricing_key = self.pricing_key.strip()
+        self.provider_name = self.provider_name.strip()
+        self.model_name = self.model_name.strip()
         _validate_status(self.status, RUN_STATUSES, "run")
 
     @classmethod
@@ -274,11 +294,22 @@ class RunStore:
         self.root = Path(root).expanduser().resolve()
         self.path = self.root / "runs.json"
 
-    def start(self, *, task_id: str | None, agent_name: str, session_id: str, trace_id: str) -> RunRecord:
+    def start(
+        self,
+        *,
+        task_id: str | None,
+        agent_name: str,
+        source: str,
+        thread_key: str,
+        session_id: str,
+        trace_id: str,
+    ) -> RunRecord:
         record = RunRecord(
             run_id=_create_os_id("run"),
             task_id=task_id,
             agent_name=agent_name,
+            source=source,
+            thread_key=thread_key,
             session_id=session_id,
             trace_id=trace_id,
             status="running",
@@ -302,7 +333,25 @@ class RunStore:
             records = [record for record in records if record.task_id == task_id]
         return records
 
-    def finish(self, run_id: str, *, status: str) -> RunRecord:
+    def finish(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        turn_count: int | None = None,
+        tool_call_count: int | None = None,
+        subagent_count: int | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        estimated_input_cost_usd: float | None = None,
+        estimated_output_cost_usd: float | None = None,
+        estimated_total_cost_usd: float | None = None,
+        context_pressure_percent: int | None = None,
+        pricing_key: str | None = None,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+    ) -> RunRecord:
         _validate_status(status, RUN_STATUSES, "run")
         records = self.list()
         for index, record in enumerate(records):
@@ -312,16 +361,68 @@ class RunStore:
                 run_id=record.run_id,
                 task_id=record.task_id,
                 agent_name=record.agent_name,
+                source=record.source,
+                thread_key=record.thread_key,
                 session_id=record.session_id,
                 trace_id=record.trace_id,
                 status=status,
                 started_at=record.started_at,
                 finished_at=utc_now_iso(),
+                turn_count=record.turn_count if turn_count is None else turn_count,
+                tool_call_count=record.tool_call_count if tool_call_count is None else tool_call_count,
+                subagent_count=record.subagent_count if subagent_count is None else subagent_count,
+                prompt_tokens=record.prompt_tokens if prompt_tokens is None else prompt_tokens,
+                completion_tokens=record.completion_tokens if completion_tokens is None else completion_tokens,
+                total_tokens=record.total_tokens if total_tokens is None else total_tokens,
+                estimated_input_cost_usd=(
+                    record.estimated_input_cost_usd
+                    if estimated_input_cost_usd is None
+                    else estimated_input_cost_usd
+                ),
+                estimated_output_cost_usd=(
+                    record.estimated_output_cost_usd
+                    if estimated_output_cost_usd is None
+                    else estimated_output_cost_usd
+                ),
+                estimated_total_cost_usd=(
+                    record.estimated_total_cost_usd
+                    if estimated_total_cost_usd is None
+                    else estimated_total_cost_usd
+                ),
+                context_pressure_percent=(
+                    record.context_pressure_percent
+                    if context_pressure_percent is None
+                    else context_pressure_percent
+                ),
+                pricing_key=record.pricing_key if pricing_key is None else pricing_key,
+                provider_name=record.provider_name if provider_name is None else provider_name,
+                model_name=record.model_name if model_name is None else model_name,
             )
             records[index] = updated
             self._write(records)
             return updated
         raise KeyError(f"unknown run: {run_id}")
+
+    def render(self, *, limit: int = 10) -> str:
+        records = self.list()
+        if not records:
+            return "Runs: none."
+        lines = ["Runs:"]
+        for record in sorted(records, key=lambda item: item.started_at, reverse=True)[:limit]:
+            lines.append(
+                f"- {record.run_id}: agent={record.agent_name} status={record.status} session={record.session_id}"
+            )
+            lines.append(f"  source={record.source} thread={record.thread_key}")
+            lines.append(f"  trace={record.trace_id} tokens={record.total_tokens} cost=${record.estimated_total_cost_usd:.4f}")
+            if record.task_id:
+                lines.append(f"  task={record.task_id}")
+            lines.append(
+                f"  turns={record.turn_count} tools={record.tool_call_count} subagents={record.subagent_count} ctx={record.context_pressure_percent}%"
+            )
+            lines.append(f"  started={record.started_at}")
+            if record.finished_at:
+                lines.append(f"  finished={record.finished_at}")
+        return "\n".join(lines)
 
     def _write(self, records: list[RunRecord]) -> None:
         _write_store(self.path, [asdict(record) for record in records])

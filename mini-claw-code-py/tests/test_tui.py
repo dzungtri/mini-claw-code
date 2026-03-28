@@ -5,6 +5,7 @@ from rich.console import Console
 
 from mini_claw_code_py import (
     Message,
+    RunStore,
     SessionStore,
     SessionRouter,
     StopReason,
@@ -74,6 +75,8 @@ def test_tui_print_help_lists_core_commands() -> None:
     assert "/subagents" in rendered
     assert "/agents" in rendered
     assert "/teams" in rendered
+    assert "/routes" in rendered
+    assert "/runs" in rendered
     assert "/fork" in rendered
     assert "/rename <title>" in rendered
     assert "/resume <id>" in rendered
@@ -136,6 +139,7 @@ def test_tui_handle_command_subagents_prints_registry(tmp_path: Path) -> None:
     console = Console(record=True, width=120)
     ui = ConsoleUI(console=console)
     store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    runs = RunStore(tmp_path / ".mini-claw" / "os")
     router = SessionRouter(default_route_store(tmp_path), store)
     current_session = store.create(cwd=tmp_path)
     current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
@@ -164,6 +168,7 @@ def test_tui_handle_command_subagents_prints_registry(tmp_path: Path) -> None:
             input_queue=asyncio.Queue(),
             store=store,
             router=router,
+            runs=runs,
             agent=DummyAgent(),  # type: ignore[arg-type]
             current_route=current_route,
             current_session=current_session,
@@ -184,6 +189,7 @@ def test_tui_handle_command_agents_prints_hosted_registry(tmp_path: Path) -> Non
     console = Console(record=True, width=120)
     ui = ConsoleUI(console=console)
     store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    runs = RunStore(tmp_path / ".mini-claw" / "os")
     router = SessionRouter(default_route_store(tmp_path), store)
     current_session = store.create(cwd=tmp_path)
     current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
@@ -214,6 +220,7 @@ def test_tui_handle_command_agents_prints_hosted_registry(tmp_path: Path) -> Non
             input_queue=asyncio.Queue(),
             store=store,
             router=router,
+            runs=runs,
             agent=DummyAgent(),  # type: ignore[arg-type]
             current_route=current_route,
             current_session=current_session,
@@ -235,6 +242,7 @@ def test_tui_handle_command_teams_prints_team_registry(tmp_path: Path) -> None:
     console = Console(record=True, width=120)
     ui = ConsoleUI(console=console)
     store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    runs = RunStore(tmp_path / ".mini-claw" / "os")
     router = SessionRouter(default_route_store(tmp_path), store)
     current_session = store.create(cwd=tmp_path)
     current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
@@ -265,6 +273,7 @@ def test_tui_handle_command_teams_prints_team_registry(tmp_path: Path) -> None:
             input_queue=asyncio.Queue(),
             store=store,
             router=router,
+            runs=runs,
             agent=DummyAgent(),  # type: ignore[arg-type]
             current_route=current_route,
             current_session=current_session,
@@ -280,6 +289,92 @@ def test_tui_handle_command_teams_prints_team_registry(tmp_path: Path) -> None:
     assert "Teams" in rendered
     assert "default" in rendered
     assert "product-a" in rendered
+
+
+def test_tui_handle_command_routes_prints_route_store(tmp_path: Path) -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+    store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    runs = RunStore(tmp_path / ".mini-claw" / "os")
+    router = SessionRouter(default_route_store(tmp_path), store)
+    current_session = store.persist(store.create(cwd=tmp_path))
+    current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
+
+    class DummyAgent:
+        def subagent_profile_registry(self) -> SubagentProfileRegistry:
+            return SubagentProfileRegistry({})
+
+    async def run() -> tuple[bool, object, object, object, list[Message], bool]:
+        return await _handle_command(
+            prompt="/routes",
+            provider=None,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            input_queue=asyncio.Queue(),
+            store=store,
+            router=router,
+            runs=runs,
+            agent=DummyAgent(),  # type: ignore[arg-type]
+            current_route=current_route,
+            current_session=current_session,
+            history=[],
+            plan_mode=False,
+            ui=ui,
+        )
+
+    handled, _, _, _, _, _ = asyncio.run(run())
+
+    rendered = console.export_text()
+    assert handled is True
+    assert "Routes" in rendered
+    assert "cli:local" in rendered
+    assert current_session.id in rendered
+
+
+def test_tui_handle_command_runs_prints_run_store(tmp_path: Path) -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+    store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    runs = RunStore(tmp_path / ".mini-claw" / "os")
+    router = SessionRouter(default_route_store(tmp_path), store)
+    current_session = store.persist(store.create(cwd=tmp_path))
+    current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
+    run = runs.start(
+        task_id=None,
+        agent_name="superagent",
+        source="cli",
+        thread_key="cli:local",
+        session_id=current_session.id,
+        trace_id="trace_demo",
+    )
+    runs.finish(run.run_id, status="completed")
+
+    class DummyAgent:
+        def subagent_profile_registry(self) -> SubagentProfileRegistry:
+            return SubagentProfileRegistry({})
+
+    async def run_command() -> tuple[bool, object, object, object, list[Message], bool]:
+        return await _handle_command(
+            prompt="/runs",
+            provider=None,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            input_queue=asyncio.Queue(),
+            store=store,
+            router=router,
+            runs=runs,
+            agent=DummyAgent(),  # type: ignore[arg-type]
+            current_route=current_route,
+            current_session=current_session,
+            history=[],
+            plan_mode=False,
+            ui=ui,
+        )
+
+    handled, _, _, _, _, _ = asyncio.run(run_command())
+
+    rendered = console.export_text()
+    assert handled is True
+    assert "Runs" in rendered
+    assert "trace_demo" in rendered
 
 
 def test_tui_summarize_history_message_formats_assistant_tool_calls() -> None:
