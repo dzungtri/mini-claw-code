@@ -76,7 +76,8 @@ from .memory import (
     should_consider_memory_update,
     update_memory_file,
 )
-from .mcp import MCPRegistry, MCPServer, default_mcp_config_paths, parse_mcp_config
+from .mcp import MCPCatalog, MCPPromptEntry, MCPRegistry, MCPResourceEntry, MCPServer, MCPToolAdapter
+from .mcp import default_mcp_config_paths, parse_mcp_config
 from .mock import MockProvider
 from .planning import PlanAgent
 from .prompts import (
@@ -221,7 +222,11 @@ __all__ = [
     "MemoryUpdateQueue",
     "MemoryUpdater",
     "MCPRegistry",
+    "MCPCatalog",
+    "MCPPromptEntry",
+    "MCPResourceEntry",
     "MCPServer",
+    "MCPToolAdapter",
     "MockInputHandler",
     "MockProvider",
     "MockStreamProvider",

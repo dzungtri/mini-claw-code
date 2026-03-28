@@ -52,6 +52,7 @@ DEFAULT_COMMAND_ROWS: Final[tuple[tuple[str, str], ...]] = (
     ("/status", "show runtime status"),
     ("/todos", "show todo state"),
     ("/artifacts", "show tracked output artifacts"),
+    ("/mcp", "show connected MCP catalog"),
     ("/session", "show current session"),
     ("/sessions", "show recent sessions and select one to resume"),
     ("/rename <title>", "rename the current session"),
@@ -243,6 +244,7 @@ class ConsoleUI:
             todo_text=agent.todo_board().render(),
             token_usage_text=agent.token_usage_tracker().render(),
             artifact_text=agent.artifact_catalog().render(),
+            mcp_text=agent.mcp_status_text(),
         )
         self._print_lines_panel("Runtime", lines)
 
@@ -251,6 +253,9 @@ class ConsoleUI:
 
     def print_artifacts(self, agent: object) -> None:
         self._print_lines_panel("Artifacts", agent.artifact_catalog().render().splitlines())
+
+    def print_mcp(self, agent: object) -> None:
+        self._print_lines_panel("MCP", agent.mcp_status_text().splitlines())
 
     def print_session_status(self, session: SessionRecord) -> None:
         table = Table.grid(padding=(0, 1))

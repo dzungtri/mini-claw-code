@@ -81,6 +81,7 @@ def render_runtime_status(
     todo_text: str,
     token_usage_text: str,
     artifact_text: str | None = None,
+    mcp_text: str | None = None,
 ) -> list[str]:
     lines = [f"Mode: {mode}"]
     if control_profile is not None:
@@ -89,6 +90,8 @@ def render_runtime_status(
     lines.extend(token_usage_text.splitlines())
     if artifact_text:
         lines.extend(artifact_text.splitlines())
+    if mcp_text:
+        lines.extend(mcp_text.splitlines())
     return lines
 
 

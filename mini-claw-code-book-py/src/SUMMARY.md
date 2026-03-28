@@ -39,4 +39,4 @@
 - [Chapter 31: Config Files and Runtime Profiles](./ch31-config-runtime-profiles.md)
 - [Chapter 32: Artifact and Output Management (coming soon)](./ch32-artifact-output-management.md)
 - [Chapter 33: Advanced Control Policies (coming soon)](./ch33-advanced-control-policies.md)
-- [Chapter 34: MCP Resources and Prompt Surfaces (coming soon)](./ch34-mcp-resources-prompts.md)
+- [Chapter 34: MCP Resources and Prompt Surfaces](./ch34-mcp-resources-prompts.md)

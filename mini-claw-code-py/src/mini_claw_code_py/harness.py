@@ -59,7 +59,7 @@ from .memory import (
     latest_memory_exchange,
     should_consider_memory_update,
 )
-from .mcp import MCPRegistry, MCPToolAdapter
+from .mcp import MCPCatalog, MCPRegistry, MCPToolAdapter
 from .prompts import DEFAULT_PLAN_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, render_system_prompt
 from .skills import SkillRegistry
 from .streaming import StreamDone, StreamProvider, TextDelta
@@ -123,6 +123,7 @@ class HarnessAgent:
         self._audit_log = AuditLog()
         self._workspace_config: WorkspaceConfig | None = None
         self._mcp_registry: MCPRegistry | None = None
+        self._mcp_catalog = MCPCatalog()
         self._skill_registry: SkillRegistry | None = None
         self._todo_board = TodoBoard()
         self._artifact_catalog = ArtifactCatalog()
@@ -208,6 +209,22 @@ class HarnessAgent:
 
     def artifact_catalog(self) -> ArtifactCatalog:
         return self._artifact_catalog
+
+    def mcp_catalog(self) -> MCPCatalog:
+        return self._mcp_catalog
+
+    def mcp_status_text(self) -> str:
+        if self._mcp_registry is None or not self._mcp_registry.all():
+            return "MCP: no configured servers."
+        connected = set(self._mcp_catalog.servers())
+        lines = [self._mcp_registry.render(connected_servers=connected)]
+        if connected:
+            lines.append("")
+            lines.append(self._mcp_catalog.render())
+        else:
+            lines.append("")
+            lines.append("Live MCP catalog: not connected in this session yet.")
+        return "\n".join(lines)
 
     def workspace(
         self,
@@ -603,7 +620,19 @@ class HarnessAgent:
             mcp_summary: str | None = None
             if allowed is None and self._mcp_registry is not None and self._mcp_registry.all():
                 adapter = await stack.enter_async_context(MCPToolAdapter(self._mcp_registry))
+                catalog = getattr(adapter, "catalog", None)
+                if callable(catalog):
+                    self._mcp_catalog = catalog().copy()
+                else:
+                    self._mcp_catalog.clear()
                 mcp_summary = adapter.status_summary()
+                runtime_prompt = getattr(adapter, "runtime_prompt_section", None)
+                runtime_section = runtime_prompt() if callable(runtime_prompt) else ""
+                if runtime_section:
+                    self._set_system_prompt(
+                        messages,
+                        _append_prompt_section(messages[0].content or "", runtime_section),
+                    )
                 if self._tool_universe_enabled:
                     for tool in adapter.tools():
                         deferred_registry.register(tool, source="mcp")
@@ -611,6 +640,8 @@ class HarnessAgent:
                 else:
                     for tool in adapter.tools():
                         runtime_tools.push(tool)
+            else:
+                self._mcp_catalog.clear()
 
             built_in_count = len(self.tools.definitions())
             deferred_count = deferred_registry.count()

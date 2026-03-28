@@ -14,6 +14,7 @@ from mcp import ClientSession, StdioServerParameters, types as mcp_types
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.exceptions import McpError
 
 from .types import JSONValue, ToolDefinition
 
@@ -67,6 +68,131 @@ class MCPServer:
         if self.metadata:
             config.update(self.metadata)
         return config
+
+
+@dataclass(slots=True)
+class MCPResourceEntry:
+    server: str
+    name: str
+    uri: str
+    description: str
+    mime_type: str | None = None
+
+
+@dataclass(slots=True)
+class MCPPromptEntry:
+    server: str
+    name: str
+    description: str
+    arguments: list[str] = field(default_factory=list)
+
+
+class MCPCatalog:
+    def __init__(self) -> None:
+        self._servers: list[str] = []
+        self._tool_count = 0
+        self._resources: list[MCPResourceEntry] = []
+        self._prompts: list[MCPPromptEntry] = []
+
+    def replace(
+        self,
+        *,
+        servers: list[str],
+        tool_count: int,
+        resources: list[MCPResourceEntry],
+        prompts: list[MCPPromptEntry],
+    ) -> None:
+        self._servers = list(servers)
+        self._tool_count = tool_count
+        self._resources = sorted(resources, key=lambda item: (item.server, item.uri))
+        self._prompts = sorted(prompts, key=lambda item: (item.server, item.name))
+
+    def clear(self) -> None:
+        self.replace(servers=[], tool_count=0, resources=[], prompts=[])
+
+    def copy(self) -> "MCPCatalog":
+        other = MCPCatalog()
+        other.replace(
+            servers=self._servers,
+            tool_count=self._tool_count,
+            resources=self._resources,
+            prompts=self._prompts,
+        )
+        return other
+
+    def resources(self) -> list[MCPResourceEntry]:
+        return list(self._resources)
+
+    def prompts(self) -> list[MCPPromptEntry]:
+        return list(self._prompts)
+
+    def servers(self) -> list[str]:
+        return list(self._servers)
+
+    def status_summary(self) -> str:
+        if not self._servers:
+            return ""
+        names = ", ".join(self._servers)
+        return (
+            f"MCP connected: {names} "
+            f"({self._tool_count} {_available_noun(self._tool_count, 'tool')}, "
+            f"{len(self._resources)} {_available_noun(len(self._resources), 'resource')}, "
+            f"{len(self._prompts)} {_available_noun(len(self._prompts), 'prompt')})"
+        )
+
+    def render(self, *, limit: int = 8) -> str:
+        if not self._servers:
+            return "MCP: not connected."
+        lines = [self.status_summary()]
+        if self._resources:
+            lines.append("Resources:")
+            for entry in self._resources[:limit]:
+                detail = f" ({entry.mime_type})" if entry.mime_type else ""
+                lines.append(f"- [{entry.server}] {entry.uri}{detail}")
+            if len(self._resources) > limit:
+                lines.append(f"- ... and {len(self._resources) - limit} more resources")
+        else:
+            lines.append("Resources: none")
+        if self._prompts:
+            lines.append("Prompts:")
+            for entry in self._prompts[:limit]:
+                args = f" args={entry.arguments}" if entry.arguments else ""
+                lines.append(f"- [{entry.server}] {entry.name}{args}")
+            if len(self._prompts) > limit:
+                lines.append(f"- ... and {len(self._prompts) - limit} more prompts")
+        else:
+            lines.append("Prompts: none")
+        return "\n".join(lines)
+
+    def runtime_prompt_section(self) -> str:
+        if not self._servers:
+            return ""
+        lines = [
+            "<mcp_runtime>",
+            "The active runtime has already connected to MCP servers.",
+            "Use ordinary MCP tools when possible.",
+        ]
+        if self._resources:
+            lines.append("Use `mcp_read_resource` when you need the contents of a listed resource.")
+            lines.append("<connected_mcp_resources>")
+            for entry in self._resources:
+                description = entry.description or "No description"
+                lines.append(
+                    f"- server={entry.server} uri={entry.uri} description={description}"
+                )
+            lines.append("</connected_mcp_resources>")
+        if self._prompts:
+            lines.append("Use `mcp_get_prompt` when you want a connected MCP prompt expanded into runnable messages.")
+            lines.append("<connected_mcp_prompts>")
+            for entry in self._prompts:
+                description = entry.description or "No description"
+                args = ", ".join(entry.arguments) if entry.arguments else "none"
+                lines.append(
+                    f"- server={entry.server} name={entry.name} args={args} description={description}"
+                )
+            lines.append("</connected_mcp_prompts>")
+        lines.append("</mcp_runtime>")
+        return "\n".join(lines)
 
 
 def parse_mcp_config(
@@ -181,6 +307,19 @@ class MCPRegistry:
         ]
         return "\n".join(lines)
 
+    def render(self, *, connected_servers: set[str] | None = None) -> str:
+        servers = self.all()
+        if not servers:
+            return "MCP: no configured servers."
+        connected = connected_servers or set()
+        lines = ["Configured MCP servers:"]
+        for server in servers:
+            status = "connected" if server.name in connected else "configured"
+            lines.append(f"- {server.name} [{server.transport}] ({status})")
+            lines.append(f"  source: {server.config_path}")
+            lines.append(f"  summary: {server.summary()}")
+        return "\n".join(lines)
+
 
 class MCPToolProxy:
     def __init__(self, session: ClientSession, definition: ToolDefinition) -> None:
@@ -197,11 +336,101 @@ class MCPToolProxy:
         return _stringify_tool_result(result)
 
 
+class MCPResourceProxy:
+    def __init__(
+        self,
+        sessions: Mapping[str, ClientSession],
+        resources: list[MCPResourceEntry],
+    ) -> None:
+        self._sessions = sessions
+        self._resources = {(entry.server, entry.uri): entry for entry in resources}
+        self._definition = (
+            ToolDefinition.new(
+                "mcp_read_resource",
+                "Read a connected MCP resource by server and URI.",
+            )
+            .param("server", "string", "Connected MCP server name.", True)
+            .param("uri", "string", "Resource URI from the MCP catalog.", True)
+        )
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return self._definition
+
+    async def call(self, args: JSONValue) -> str:
+        if not isinstance(args, dict):
+            return "error: expected object arguments"
+        server = args.get("server")
+        uri = args.get("uri")
+        if not isinstance(server, str) or not server.strip():
+            return "error: missing server"
+        if not isinstance(uri, str) or not uri.strip():
+            return "error: missing uri"
+        session = self._sessions.get(server)
+        if session is None:
+            return f"error: unknown MCP server `{server}`"
+        if (server, uri) not in self._resources:
+            return f"error: unknown resource `{uri}` for server `{server}`"
+        result = await session.read_resource(uri)
+        return _stringify_resource_result(result)
+
+
+class MCPPromptProxy:
+    def __init__(
+        self,
+        sessions: Mapping[str, ClientSession],
+        prompts: list[MCPPromptEntry],
+    ) -> None:
+        self._sessions = sessions
+        self._prompts = {(entry.server, entry.name): entry for entry in prompts}
+        definition = ToolDefinition.new(
+            "mcp_get_prompt",
+            "Expand a connected MCP prompt by server and prompt name.",
+        )
+        definition.param("server", "string", "Connected MCP server name.", True)
+        definition.param("name", "string", "Prompt name from the MCP catalog.", True)
+        definition.param_raw(
+            "arguments",
+            {
+                "type": "object",
+                "description": "Optional prompt arguments as string values.",
+                "additionalProperties": {"type": "string"},
+            },
+            False,
+        )
+        self._definition = definition
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return self._definition
+
+    async def call(self, args: JSONValue) -> str:
+        if not isinstance(args, dict):
+            return "error: expected object arguments"
+        server = args.get("server")
+        name = args.get("name")
+        raw_arguments = args.get("arguments")
+        if not isinstance(server, str) or not server.strip():
+            return "error: missing server"
+        if not isinstance(name, str) or not name.strip():
+            return "error: missing name"
+        session = self._sessions.get(server)
+        if session is None:
+            return f"error: unknown MCP server `{server}`"
+        prompt = self._prompts.get((server, name))
+        if prompt is None:
+            return f"error: unknown prompt `{name}` for server `{server}`"
+        arguments = _stringify_prompt_arguments(raw_arguments)
+        result = await session.get_prompt(name, arguments if arguments else None)
+        return _stringify_prompt_result(result)
+
+
 class MCPToolAdapter:
     def __init__(self, registry: MCPRegistry) -> None:
         self.registry = registry
         self._stack: AsyncExitStack | None = None
         self._tools: list[MCPToolProxy] = []
+        self._catalog = MCPCatalog()
 
     async def __aenter__(self) -> "MCPToolAdapter":
         if not self.registry.all():
@@ -209,15 +438,35 @@ class MCPToolAdapter:
 
         stack = AsyncExitStack()
         await stack.__aenter__()
+        sessions: dict[str, ClientSession] = {}
+        resources: list[MCPResourceEntry] = []
+        prompts: list[MCPPromptEntry] = []
 
         try:
             for server in self.registry.all():
                 session = await _open_mcp_session(stack, server)
+                sessions[server.name] = session
                 for tool in await _list_all_tools(session):
                     self._tools.append(MCPToolProxy(session, _tool_definition_from_mcp(tool)))
+                for resource in await _list_all_resources(session):
+                    resources.append(_resource_entry_from_mcp(server.name, resource))
+                for prompt in await _list_all_prompts(session):
+                    prompts.append(_prompt_entry_from_mcp(server.name, prompt))
         except BaseException as exc:
             await stack.__aexit__(type(exc), exc, exc.__traceback__)
             raise
+
+        if resources:
+            self._tools.append(MCPResourceProxy(sessions, resources))
+        if prompts:
+            self._tools.append(MCPPromptProxy(sessions, prompts))
+
+        self._catalog.replace(
+            servers=[server.name for server in self.registry.all()],
+            tool_count=len(self._tools),
+            resources=resources,
+            prompts=prompts,
+        )
 
         self._stack = stack
         return self
@@ -227,17 +476,19 @@ class MCPToolAdapter:
             await self._stack.__aexit__(exc_type, exc, tb)
             self._stack = None
         self._tools = []
+        self._catalog.clear()
 
-    def tools(self) -> list[MCPToolProxy]:
+    def tools(self) -> list[object]:
         return list(self._tools)
 
+    def catalog(self) -> MCPCatalog:
+        return self._catalog
+
+    def runtime_prompt_section(self) -> str:
+        return self._catalog.runtime_prompt_section()
+
     def status_summary(self) -> str:
-        names = ", ".join(server.name for server in self.registry.all())
-        if not names:
-            return ""
-        count = len(self._tools)
-        noun = "tool" if count == 1 else "tools"
-        return f"MCP connected: {names} ({count} {noun} available)"
+        return self._catalog.status_summary()
 
 
 def _nearest_project_config(start: Path) -> Path | None:
@@ -431,6 +682,38 @@ async def _list_all_tools(session: ClientSession) -> list[mcp_types.Tool]:
             return tools
 
 
+async def _list_all_resources(session: ClientSession) -> list[mcp_types.Resource]:
+    resources: list[mcp_types.Resource] = []
+    cursor: str | None = None
+    while True:
+        try:
+            result = await session.list_resources(cursor=cursor)
+        except McpError as exc:
+            if "Method not found" in str(exc):
+                return []
+            raise
+        resources.extend(result.resources)
+        cursor = result.nextCursor
+        if cursor is None:
+            return resources
+
+
+async def _list_all_prompts(session: ClientSession) -> list[mcp_types.Prompt]:
+    prompts: list[mcp_types.Prompt] = []
+    cursor: str | None = None
+    while True:
+        try:
+            result = await session.list_prompts(cursor=cursor)
+        except McpError as exc:
+            if "Method not found" in str(exc):
+                return []
+            raise
+        prompts.extend(result.prompts)
+        cursor = result.nextCursor
+        if cursor is None:
+            return prompts
+
+
 @asynccontextmanager
 async def _server_transport(
     server: MCPServer,
@@ -514,6 +797,25 @@ def _tool_definition_from_mcp(tool: mcp_types.Tool) -> ToolDefinition:
     return ToolDefinition(name=tool.name, description=description, parameters=schema)
 
 
+def _resource_entry_from_mcp(server: str, resource: mcp_types.Resource) -> MCPResourceEntry:
+    return MCPResourceEntry(
+        server=server,
+        name=resource.name,
+        uri=str(resource.uri),
+        description=resource.description or "",
+        mime_type=resource.mimeType,
+    )
+
+
+def _prompt_entry_from_mcp(server: str, prompt: mcp_types.Prompt) -> MCPPromptEntry:
+    return MCPPromptEntry(
+        server=server,
+        name=prompt.name,
+        description=prompt.description or "",
+        arguments=[arg.name for arg in prompt.arguments or []],
+    )
+
+
 def _stringify_tool_result(result: mcp_types.CallToolResult) -> str:
     rendered = _render_content_blocks(result.content)
     if rendered:
@@ -529,6 +831,50 @@ def _stringify_tool_result(result: mcp_types.CallToolResult) -> str:
     if result.isError:
         return "error: MCP tool call failed"
     return ""
+
+
+def _stringify_resource_result(result: mcp_types.ReadResourceResult) -> str:
+    rendered: list[str] = []
+    for item in result.contents:
+        if isinstance(item, mcp_types.TextResourceContents):
+            rendered.append(item.text)
+            continue
+        if isinstance(item, mcp_types.BlobResourceContents):
+            mime = item.mimeType or "application/octet-stream"
+            rendered.append(f"[resource blob {mime}, {len(item.blob)} bytes]")
+            continue
+        if hasattr(item, "model_dump"):
+            rendered.append(json.dumps(item.model_dump(mode="json"), ensure_ascii=True, default=str))
+            continue
+        rendered.append(str(item))
+    return "\n".join(part for part in rendered if part)
+
+
+def _stringify_prompt_arguments(value: object) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        return {}
+    arguments: dict[str, str] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            continue
+        if isinstance(item, str):
+            arguments[key] = item
+        else:
+            arguments[key] = str(item)
+    return arguments
+
+
+def _stringify_prompt_result(result: mcp_types.GetPromptResult) -> str:
+    lines: list[str] = []
+    if result.description:
+        lines.append(result.description)
+    for message in result.messages:
+        rendered = _render_prompt_message(message)
+        if rendered:
+            lines.append(rendered)
+    return "\n\n".join(lines)
 
 
 def _render_content_blocks(content: list[mcp_types.ContentBlock]) -> str:
@@ -559,3 +905,12 @@ def _render_content_block(item: mcp_types.ContentBlock) -> str:
         except TypeError:
             return str(item)
     return str(item)
+
+
+def _render_prompt_message(message: mcp_types.PromptMessage) -> str:
+    return f"[{message.role}] {_render_content_block(message.content)}"
+
+
+def _available_noun(count: int, singular: str) -> str:
+    noun = singular if count == 1 else singular + "s"
+    return f"{noun} available"

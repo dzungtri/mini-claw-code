@@ -114,6 +114,13 @@ class PlanAgent:
             if allowed is None and self._mcp_registry is not None and self._mcp_registry.all():
                 adapter = await stack.enter_async_context(MCPToolAdapter(self._mcp_registry))
                 mcp_summary = adapter.status_summary()
+                runtime_prompt = getattr(adapter, "runtime_prompt_section", None)
+                runtime_section = runtime_prompt() if callable(runtime_prompt) else ""
+                if runtime_section:
+                    self._set_system_prompt(
+                        messages,
+                        _append_prompt_section(messages[0].content or "", runtime_section),
+                    )
                 for tool in adapter.tools():
                     runtime_tools.push(tool)
 
@@ -198,3 +205,15 @@ class PlanAgent:
             messages[0] = system
         else:
             messages.insert(0, system)
+
+
+def _append_prompt_section(prompt: str, section: str) -> str:
+    prompt_text = prompt.strip()
+    section_text = section.strip()
+    if not section_text:
+        return prompt_text
+    if section_text in prompt_text:
+        return prompt_text
+    if not prompt_text:
+        return section_text
+    return f"{prompt_text}\n\n{section_text}"
