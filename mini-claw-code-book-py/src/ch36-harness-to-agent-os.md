@@ -51,6 +51,118 @@ So the goal of this chapter is:
 - make observability a first-class requirement
 - design the next folder and module shape
 
+## Where We Are Now
+
+By the time we reach this chapter, the codebase already has a real harness and the first Agent OS backbone pieces.
+
+That means this chapter should not describe an abstract dream only.
+
+It should explain the system boundary we are already growing into.
+
+Today, the project already has:
+
+- a real `HarnessAgent`
+- session persistence and restore
+- runtime events and token usage
+- a routed front-door CLI
+- a message bus
+- a hosted agent registry
+- teams, goals, tasks, and runs
+- session routing from external thread identities into harness sessions
+- a turn runner
+- an in-process gateway backbone
+- an operator console
+
+So the important question is no longer:
+
+- "should we build an Agent OS?"
+
+It is now:
+
+- "how do we keep the transition from harness to Agent OS clean?"
+
+## Architecture Snapshot
+
+The easiest way to think about the system is as three rings:
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ User / Operator Surfaces                                    │
+│                                                              │
+│  make cli   Telegram   Web UI   ACP Client   make ops       │
+└──────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Agent OS                                                     │
+│                                                              │
+│  channels   gateway   bus   registry   router   runner      │
+│  teams      goals     tasks runs      monitoring control    │
+└──────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Harness Runtime                                              │
+│                                                              │
+│  prompt   memory   workspace   tools   MCP   skills         │
+│  subagents   policies   context durability   session state  │
+└──────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Model + Filesystem + External Systems                        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+This picture is the key boundary for the rest of the book.
+
+The harness is the execution engine.
+
+The Agent OS is the host environment around that engine.
+
+## A Concrete Mental Model
+
+The cleanest production-minded mental model is:
+
+- the user talks to one front door
+- the OS turns that into routed work
+- the runner selects the correct hosted agent
+- the hosted agent is built on top of a harness
+- the harness executes the turn
+- the OS records and monitors the run
+
+In a local single-machine setup, that looks like:
+
+```text
+user input
+  -> work console (make cli)
+  -> superagent envelope
+  -> session router
+  -> turn runner
+  -> hosted superagent
+  -> harness turn execution
+  -> run/session/task updates
+  -> reply back to the console
+```
+
+In a protocol-facing setup, the first gateway path looks like:
+
+```text
+remote client
+  -> gateway session
+  -> gateway service
+  -> message bus inbound queue
+  -> turn runner
+  -> hosted agent
+  -> harness turn execution
+  -> outbound envelope + run update
+```
+
+That second path matters because it shows a crucial architectural rule:
+
+- ACP or any gateway should wrap the same OS runner
+- it should not build a second parallel execution engine
+
 ## Core Vocabulary
 
 Before we continue, we need one stable vocabulary.
@@ -492,6 +604,60 @@ This is much better than:
 - user ↔ many internal agents directly
 
 because it keeps the system coherent from the user perspective.
+
+We can draw that more concretely like this:
+
+```text
+                         ┌──────────────────────┐
+                         │     User / Client    │
+                         │ cli, app, web, bot   │
+                         └──────────┬───────────┘
+                                    │
+                                    ▼
+                         ┌──────────────────────┐
+                         │      Superagent      │
+                         │  front door / owner  │
+                         └──────────┬───────────┘
+                                    │
+                  ┌─────────────────┼─────────────────┐
+                  │                 │                 │
+                  ▼                 ▼                 ▼
+         ┌────────────────┐ ┌────────────────┐ ┌────────────────┐
+         │  Dev Team Lead │ │ Marketing Lead │ │ Research Lead  │
+         └───────┬────────┘ └───────┬────────┘ └───────┬────────┘
+                 │                  │                  │
+         ┌───────┴────────┐  ┌──────┴───────┐  ┌───────┴────────┐
+         ▼                ▼  ▼              ▼  ▼                ▼
+   backend-dev      frontend-dev   copy-agent   seo-agent   analyst   reviewer
+```
+
+This is the first diagram that makes the hosted-agent model understandable.
+
+The superagent is not doing all the work itself.
+
+It owns the user relationship and the high-level goal.
+
+## The Minimum Runtime Path We Should Preserve
+
+Even after the OS grows, one rule should stay stable:
+
+- every real unit of work should become a run
+- every run should be traceable
+- every run should execute through one harness
+
+That means the execution spine should stay simple:
+
+```text
+Envelope
+  -> Route
+  -> Session
+  -> Hosted Agent Definition
+  -> HarnessAgent Build
+  -> Harness Turn
+  -> Run Record + Events + Session Save
+```
+
+If we bypass that path too often, the OS becomes hard to reason about.
 
 ## The Team Model
 
@@ -1051,6 +1217,28 @@ Everything is local:
 
 This should be the first implementation path.
 
+We can picture that like this:
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                         One Computer                         │
+│                                                              │
+│  make cli         make ops                                   │
+│     │                │                                       │
+│     └──────┬─────────┘                                       │
+│            ▼                                                 │
+│      Agent OS control plane                                  │
+│      bus + registry + router + runner                        │
+│            │                                                 │
+│     ┌──────┼───────────────┬───────────────┐                 │
+│     ▼                      ▼               ▼                 │
+│ superagent              pipi           reviewer              │
+│  harness               harness           harness             │
+│     │                      │               │                 │
+│     └────────────── workspace / files ─────┘                 │
+└──────────────────────────────────────────────────────────────┘
+```
+
 ### Multi Computer
 
 Some agents or teams may be remote:
@@ -1070,6 +1258,31 @@ agent_registry
 ```
 
 This is why ACP belongs at the OS boundary, not inside one harness runtime.
+
+And the multi-machine version becomes:
+
+```text
+┌────────────────────┐        ACP / Gateway        ┌────────────────────┐
+│   Control Node     │ <────────────────────────> │   Worker Node B     │
+│                    │                            │                     │
+│ make cli / make ops│                            │ reviewer harness     │
+│ superagent         │                            │ local tools / MCP    │
+│ router + runner    │                            └─────────────────────┘
+│ bus + registries   │
+│ sessions + runs    │        ACP / Gateway        ┌────────────────────┐
+└─────────┬──────────┘ <────────────────────────> │   Worker Node C     │
+          │                                       │                     │
+          │                                       │ marketer harness     │
+          ▼                                       │ local tools / MCP    │
+   local hosted agents                            └─────────────────────┘
+```
+
+In that model:
+
+- the control node owns routing and monitoring
+- worker nodes host remote agents
+- ACP is the network contract between nodes
+- the harness still executes turns on each node
 
 ## Agent Teams
 
