@@ -48,6 +48,61 @@ It does **not** need:
 - federation
 - distributed team orchestration
 
+## ACP vs The Internal Bus
+
+ACP should not replace the internal OS bus.
+
+The clean split is:
+
+- local in-process coordination: internal bus and stores
+- remote/editor/network coordination: ACP gateway
+
+That means:
+
+- `make cli` on the same machine can stay on the local path
+- remote tools, remote nodes, and editor integrations can speak ACP
+
+This is the same pattern we saw in the reference systems:
+
+- DeepAgents uses ACP at the editor / remote-session boundary
+- Mimiclaw uses a gateway and a local bus as different layers
+
+That is the architecture we should keep.
+
+## Authentication And Trust
+
+Once ACP or any gateway crosses the network, authentication becomes mandatory.
+
+The first network-safe rules should be:
+
+- always run over TLS
+- authenticate the remote client or node
+- never trust inbound `agent_name`, `thread_key`, or `session_id` blindly
+- map authenticated identity to allowed target agents and allowed channels
+- audit every mode switch and remote control action
+
+The simplest production-minded evolution is:
+
+- local dev mode: no remote gateway yet
+- first remote mode: bearer token or signed service token over TLS
+- stronger production mode: mutual TLS plus signed node / client identity
+
+## Session Modes And Model Switching
+
+ACP is also the right place for session-level switches such as:
+
+- mode
+- model
+- maybe later operator approval state
+
+That matches the DeepAgents ACP examples well:
+
+- the protocol creates the session
+- the gateway updates session config
+- the runner builds the harness turn using that resolved config
+
+So session config belongs at the gateway boundary, not hidden inside the TUI.
+
 ## Architecture
 
 The first shape should include:

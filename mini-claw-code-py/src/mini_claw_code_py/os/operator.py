@@ -112,6 +112,15 @@ class OperatorService:
     def inspect_run(self, run_id: str) -> RunRecord | None:
         return self.runs.get(run_id)
 
+    def inspect_session(self, session_id: str) -> SessionRecord | None:
+        try:
+            return self.sessions.load(session_id)
+        except FileNotFoundError:
+            return None
+
+    def inspect_route(self, *, target_agent: str, thread_key: str) -> SessionRoute | None:
+        return self.routes.resolve(target_agent=target_agent, thread_key=thread_key)
+
     def cancel_run(
         self,
         run_id: str,

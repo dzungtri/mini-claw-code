@@ -3,7 +3,7 @@ from collections import deque
 from pathlib import Path
 
 import pytest
-from textual.widgets import Static
+from textual.widgets import DataTable, Static
 
 from mini_claw_code_py import (
     HostedAgentFactory,
@@ -103,11 +103,11 @@ async def test_ch47_operator_app_renders_dashboard_and_inspects_run(
     async with app.run_test() as pilot:
         await pilot.pause()
         summary = app.query_one("#summary", Static)
-        runs = app.query_one("#runs", Static)
+        runs = app.query_one("#runs", DataTable)
         assert "AgentOS Ops" in str(summary.content)
-        assert "Runs" in str(runs.content)
+        assert runs.row_count >= 1
 
-        app.inspect_run(result.context.run.run_id)
+        await pilot.press("enter")
         await pilot.pause()
 
         detail = app.query_one("#detail", Static)
@@ -139,14 +139,111 @@ async def test_ch47_operator_app_command_input_accepts_spaces(
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        command = app.query_one("#command")
-        assert command.has_focus
+        runs = app.query_one("#runs", DataTable)
+        assert runs.has_focus
         await pilot.press("/", "i", "n", "s", "p", "e", "c", "t", "space", "r", "u", "n", "space")
         await pilot.pause()
-        assert command.value == "/inspect run "
+        command = app.query_one("#command")
+        assert command.value == "inspect run "
 
         await pilot.press(*result.context.run.run_id, "enter")
         await pilot.pause()
 
         detail = app.query_one("#detail", Static)
         assert result.context.run.run_id in str(detail.content)
+
+
+@pytest.mark.asyncio
+async def test_ch47_operator_app_can_copy_selected_run_id(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    (tmp_path / "home").mkdir()
+    runner = _build_runner(tmp_path)
+    result = await runner.run(
+        MessageEnvelope(
+            source="cli",
+            target_agent="superagent",
+            thread_key="cli:local",
+            kind="user_message",
+            content="Hello",
+        )
+    )
+
+    copied: list[str] = []
+
+    app = OperatorApp(OperatorService.discover_default(cwd=tmp_path, home=tmp_path / "home"))
+    monkeypatch.setattr(app, "copy_to_clipboard", lambda text: copied.append(text))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+y")
+        await pilot.pause()
+
+    assert copied == [result.context.run.run_id]
+
+
+@pytest.mark.asyncio
+async def test_ch47_operator_app_can_inspect_session_from_table(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    (tmp_path / "home").mkdir()
+    runner = _build_runner(tmp_path)
+    result = await runner.run(
+        MessageEnvelope(
+            source="cli",
+            target_agent="superagent",
+            thread_key="cli:local",
+            kind="user_message",
+            content="Hello",
+        )
+    )
+
+    app = OperatorApp(OperatorService.discover_default(cwd=tmp_path, home=tmp_path / "home"))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        sessions = app.query_one("#sessions", DataTable)
+        sessions.focus()
+        await pilot.pause()
+        assert sessions.has_focus
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        detail = app.query_one("#detail", Static)
+        assert result.context.run.session_id in str(detail.content)
+        assert "Inspect Session" in str(detail.content)
+
+
+@pytest.mark.asyncio
+async def test_ch47_operator_app_supports_quit_command(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "home").mkdir()
+    runner = _build_runner(tmp_path)
+    await runner.run(
+        MessageEnvelope(
+            source="cli",
+            target_agent="superagent",
+            thread_key="cli:local",
+            kind="user_message",
+            content="Hello",
+        )
+    )
+
+    app = OperatorApp(OperatorService.discover_default(cwd=tmp_path, home=tmp_path / "home"))
+    called = {"quit": False}
+
+    def _mark_quit() -> None:
+        called["quit"] = True
+
+    app.action_request_quit = _mark_quit  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("/", "q", "u", "i", "t", "enter")
+        await pilot.pause()
+
+    assert called["quit"] is True

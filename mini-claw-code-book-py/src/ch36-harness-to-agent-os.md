@@ -215,6 +215,32 @@ Examples:
 
 Gateways are richer than simple channels because they often manage sessions, protocol capabilities, and structured updates.
 
+### `Node`
+
+One execution host for one or more hosted agents.
+
+A node may be:
+
+- the same machine as the operator console
+- another process on the same machine
+- a remote machine reached over the network
+
+This term matters once the OS stops being single-machine only.
+
+### `Control Plane`
+
+The part of the OS that tracks and coordinates:
+
+- routes
+- runs
+- sessions
+- operator actions
+- monitoring state
+
+In local mode, this can be file-backed.
+
+In distributed mode, it should evolve into a real shared service.
+
 ### `Background Service`
 
 A non-user producer of work.

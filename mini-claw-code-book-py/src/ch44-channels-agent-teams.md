@@ -61,6 +61,45 @@ not raw internal agent chatter by default.
 
 Operators, however, should later be able to inspect the raw execution state when needed.
 
+## Workspace Boundaries
+
+Workspace design becomes more important once we have many hosted agents and many teams.
+
+The safest default is:
+
+- one team gets one primary workspace
+- agents inside that team may share that workspace if the mission requires collaboration
+- each agent should also have its own scratch area
+- different teams should default to different workspaces
+
+So a software delivery team might intentionally share one repository workspace:
+
+- `team workspace = product-a repo`
+- `agent scratch = product-a/.agent-work/<agent-name>/...`
+
+But a marketing team should usually not share that same root by default.
+
+It should have its own workspace and artifact/output area.
+
+The main design rule is:
+
+- collaboration happens through shared team workspaces and explicit artifacts
+- not through every team mutating the same root blindly
+
+## Cross-Team Collaboration
+
+When teams need to collaborate, the cleaner primitive is:
+
+- artifact handoff
+- summarized outputs
+- explicit shared resources
+
+not:
+
+- every team writing directly into every other team workspace
+
+That keeps ownership and security much clearer.
+
 ## Architecture
 
 The first team-aware channel flow should be:

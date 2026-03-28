@@ -85,6 +85,16 @@ That means at minimum:
 - price basis for that provider
 - estimated cost in money
 
+And for production-minded monitoring, the minimum usage/cost model should distinguish:
+
+- input tokens
+- output tokens
+- total tokens
+- pricing key
+- estimated input cost
+- estimated output cost
+- estimated total cost
+
 ### 2. Monitoring
 
 Monitoring answers:
@@ -225,6 +235,38 @@ The next meaningful operator metrics after that should be:
 - tokens per run
 - money per run
 - aggregate token and money totals per team and per agent
+
+## Current Local Monitoring Path
+
+Today, the local monitoring path is simple and explicit:
+
+- the runner persists run, route, session, and control state under `.mini-claw/`
+- the operator console reads and aggregates that same state
+- the operator dashboard refreshes on a timer
+
+So current `make ops` monitoring is:
+
+- file-backed
+- same-machine
+- shared-project-root
+
+This is good enough for the first operational slice because it is:
+
+- easy to inspect
+- easy to test
+- easy to learn
+
+But it is still local mode.
+
+## Distributed Monitoring Direction
+
+For multi-machine Agent OS deployment, the operator path should evolve into:
+
+- node / runner pushes state and events to a central control plane
+- operator consoles connect to an operator API
+- web / desktop / CLI operator surfaces all read the same backend
+
+That is the point where monitoring stops being "read local files" and becomes a real control plane.
 
 ## Why This Must Be A First-Class Requirement
 

@@ -162,6 +162,57 @@ If no bus is present, the runner should still work.
 
 That is important because the first real consumer is the local CLI, not a distributed worker system.
 
+## Where Usage And Cost Belong
+
+The runner is also the right place to finalize usage accounting.
+
+Why:
+
+- it already correlates one inbound envelope to one concrete run
+- it sees the restored session, the built harness, and the final turn result
+- it is the place that writes the durable run record
+
+So the runner should compute and persist:
+
+- prompt tokens
+- completion tokens
+- total tokens
+- provider / model identity
+- pricing key
+- estimated input cost
+- estimated output cost
+- estimated total cost
+
+The operator console should only display and aggregate those numbers.
+
+It should not recalculate billing logic by itself.
+
+## Current Local Implementation
+
+Today, the runner already writes local OS state that `make ops` can read:
+
+- run records in `.mini-claw/os/runs.json`
+- route bindings in `.mini-claw/os/routes.json`
+- session state in `.mini-claw/sessions/...`
+- control requests in `.mini-claw/os/run_controls.json`
+
+So the current local operator path is:
+
+```text
+make cli -> TurnRunner -> .mini-claw state
+make ops -> OperatorService -> .mini-claw state
+```
+
+This is a file-backed control plane.
+
+It works well for:
+
+- one machine
+- many terminals
+- one shared project root
+
+It is not yet a networked control plane.
+
 ## Message Conversion
 
 The runner needs one small translation step:

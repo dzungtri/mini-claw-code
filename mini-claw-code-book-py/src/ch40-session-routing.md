@@ -63,6 +63,54 @@ Each route record should include:
 
 That is enough to support local session continuity without introducing distributed coordination.
 
+## Current Local Mode
+
+The current implementation is intentionally local-first.
+
+`make cli` and `make ops` both read and write under the same project state root:
+
+```text
+.mini-claw/
+  sessions/
+  os/
+    routes.json
+    runs.json
+    run_controls.json
+```
+
+So today, routing continuity depends on:
+
+- the same project directory
+- the same shared filesystem
+
+This is why one terminal can open `make cli` and another terminal can open `make ops` and both still agree on:
+
+- the current route
+- the current session
+- recent runs
+
+That is good enough for the first single-machine Agent OS slice.
+
+It is **not** the final distributed design.
+
+## Distributed Direction
+
+When the OS later spans many machines, route state should no longer live only in project-local JSON files.
+
+The cleaner evolution is:
+
+- local dev mode: file-backed routes
+- single-node durable mode: database-backed routes
+- multi-node mode: central route service behind an operator / gateway API
+
+The design rule stays the same:
+
+```text
+(target_agent, thread_key) -> session_id
+```
+
+Only the backing store changes.
+
 ## A Narrow Scope
 
 The first router should stay narrow.

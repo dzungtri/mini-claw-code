@@ -181,6 +181,14 @@ So the operator UX should optimize for:
 - keyboard-first control
 - one-line command entry for control actions
 
+And usage should always be shown together with money:
+
+- prompt tokens
+- completion tokens
+- total tokens
+- estimated per-run cost
+- aggregate cost per team and per agent
+
 ## UI Technology Choice
 
 For this project, the best terminal technology choice for the operator console is:
@@ -215,6 +223,14 @@ So the clean design is:
 
 That gives the more complex operator/admin surface the right tool without forcing the simpler user work console to migrate immediately.
 
+Textual is also a better fit for the interaction model we want:
+
+- selectable tables
+- row highlight and click interaction
+- detail panes
+- keyboard-driven copy and inspect actions
+- a persistent command bar at the bottom of the screen
+
 ## Core UX Principle
 
 The operator console should always have two layers:
@@ -234,6 +250,26 @@ That combination is much stronger than either:
 
 - a static report
 - or a pure REPL
+
+## Current `make ops` Interaction Model
+
+The current operator console should follow these rules:
+
+- default focus lands on the active runs table
+- arrow keys move the selected row
+- the detail pane updates from the selected run, route, or session
+- `Tab` and `Shift+Tab` move focus between panels and the command bar
+- `Ctrl+Y` copies the focused run or session id
+- `/` focuses the command bar
+- `/quit` and `Ctrl+Q` both exit
+
+That makes the operator UI feel closer to:
+
+- `tig`
+- `htop`
+- `k9s`
+
+than to a normal chat client.
 
 ## The Main Screen
 
@@ -306,6 +342,50 @@ It gives the operator:
 This is much better than a terminal that prints infinite logs downward.
 
 The operator needs structure, not noise.
+
+## Current Local Data Path
+
+Today, `make ops` is still local-first.
+
+It is not reading from a network daemon.
+
+It is reading the same local OS state that the runner writes:
+
+```text
+make cli -> TurnRunner -> .mini-claw/os + .mini-claw/sessions
+make ops -> OperatorService -> same .mini-claw state
+```
+
+So current realtime monitoring is based on:
+
+- one shared project root
+- one shared local filesystem
+- periodic refresh in the operator TUI
+
+This is why several terminals on the same machine can already cooperate.
+
+It is also why a remote `make ops` on another machine is not the same thing yet.
+
+## The Distributed Evolution
+
+For multi-machine deployment, the cleaner progression is:
+
+1. local mode
+   - shared filesystem state
+   - timer-based refresh
+2. node mode
+   - durable store plus append-only event log
+3. distributed mode
+   - central control plane service
+   - operator API
+   - authenticated node registration
+   - event streaming to operator clients
+
+At that point:
+
+- `make ops` becomes one operator presentation
+- web and desktop apps can reuse the same backend
+- remote runners can publish into the same control plane
 
 ## Primary Panels
 
