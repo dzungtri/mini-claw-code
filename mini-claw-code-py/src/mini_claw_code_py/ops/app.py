@@ -57,8 +57,8 @@ class OperatorApp(App[None]):
     }
     """
     BINDINGS = [
-        Binding("q", "quit", "Quit"),
-        Binding("r", "refresh_snapshot", "Refresh"),
+        Binding("ctrl+q", "quit", "Quit"),
+        Binding("ctrl+r", "refresh_snapshot", "Refresh"),
         Binding("/", "focus_command", "Command"),
         Binding("escape", "clear_detail", "Back"),
     ]
@@ -86,6 +86,7 @@ class OperatorApp(App[None]):
     def on_mount(self) -> None:
         self.query_one("#detail", Static).display = False
         self.refresh_snapshot()
+        self.query_one("#command", Input).focus()
         self.set_interval(1.0, self.refresh_snapshot)
 
     def action_focus_command(self) -> None:
@@ -117,6 +118,11 @@ class OperatorApp(App[None]):
         if command.startswith("/inspect run ") or command.startswith(":inspect run "):
             run_id = command.split(maxsplit=2)[2].strip()
             self.inspect_run(run_id)
+            return
+        if command.startswith("/cancel run ") or command.startswith(":cancel run "):
+            run_id = command.split(maxsplit=2)[2].strip()
+            self._show_detail(self.service.cancel_run(run_id))
+            self.refresh_snapshot()
             return
         self._show_detail(f"Unknown command: {command}\n\nTry /help.")
 
@@ -256,6 +262,7 @@ def _help_text() -> str:
             "/help",
             "/refresh",
             "/inspect run <id>",
+            "/cancel run <id>",
             "/back",
         ]
     )

@@ -12,7 +12,7 @@ from .envelopes import utc_now_iso
 TEAM_CONFIG_FILE_NAME = ".teams.json"
 GOAL_STATUSES = ("pending", "in_progress", "blocked", "completed")
 TASK_STATUSES = ("pending", "in_progress", "blocked", "completed")
-RUN_STATUSES = ("running", "completed", "failed", "cancelled")
+RUN_STATUSES = ("running", "cancelling", "completed", "failed", "cancelled")
 
 
 @dataclass(slots=True)
@@ -171,7 +171,23 @@ class RunRecord:
 
     @classmethod
     def from_json_dict(cls, raw: Mapping[str, Any]) -> "RunRecord":
-        return cls(**raw)
+        payload = dict(raw)
+        payload.setdefault("source", "unknown")
+        payload.setdefault("thread_key", "unknown")
+        payload.setdefault("turn_count", 0)
+        payload.setdefault("tool_call_count", 0)
+        payload.setdefault("subagent_count", 0)
+        payload.setdefault("prompt_tokens", 0)
+        payload.setdefault("completion_tokens", 0)
+        payload.setdefault("total_tokens", 0)
+        payload.setdefault("estimated_input_cost_usd", 0.0)
+        payload.setdefault("estimated_output_cost_usd", 0.0)
+        payload.setdefault("estimated_total_cost_usd", 0.0)
+        payload.setdefault("context_pressure_percent", 0)
+        payload.setdefault("pricing_key", "")
+        payload.setdefault("provider_name", "")
+        payload.setdefault("model_name", "")
+        return cls(**payload)
 
 
 class GoalStore:
@@ -397,6 +413,45 @@ class RunStore:
                 pricing_key=record.pricing_key if pricing_key is None else pricing_key,
                 provider_name=record.provider_name if provider_name is None else provider_name,
                 model_name=record.model_name if model_name is None else model_name,
+            )
+            records[index] = updated
+            self._write(records)
+            return updated
+        raise KeyError(f"unknown run: {run_id}")
+
+    def mark_cancelling(self, run_id: str) -> RunRecord:
+        records = self.list()
+        for index, record in enumerate(records):
+            if record.run_id != run_id:
+                continue
+            if record.status == "cancelling":
+                return record
+            if record.status != "running":
+                raise ValueError(f"cannot mark run as cancelling from status={record.status}")
+            updated = RunRecord(
+                run_id=record.run_id,
+                task_id=record.task_id,
+                agent_name=record.agent_name,
+                source=record.source,
+                thread_key=record.thread_key,
+                session_id=record.session_id,
+                trace_id=record.trace_id,
+                status="cancelling",
+                started_at=record.started_at,
+                finished_at=None,
+                turn_count=record.turn_count,
+                tool_call_count=record.tool_call_count,
+                subagent_count=record.subagent_count,
+                prompt_tokens=record.prompt_tokens,
+                completion_tokens=record.completion_tokens,
+                total_tokens=record.total_tokens,
+                estimated_input_cost_usd=record.estimated_input_cost_usd,
+                estimated_output_cost_usd=record.estimated_output_cost_usd,
+                estimated_total_cost_usd=record.estimated_total_cost_usd,
+                context_pressure_percent=record.context_pressure_percent,
+                pricing_key=record.pricing_key,
+                provider_name=record.provider_name,
+                model_name=record.model_name,
             )
             records[index] = updated
             self._write(records)

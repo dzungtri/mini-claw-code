@@ -406,18 +406,34 @@ The operator can now see:
 - the final cost
 - that the stop was real
 
-## What The First Implementation Should Build
+## First Implementation Slice
 
-The first implementation after this chapter should do:
+The first real slice in this project now includes:
 
-1. add `cancelling` and `cancelled` handling to run state
-2. add `RunControlStore`
-3. add `OperatorService.cancel_run(run_id)`
-4. make the runner check for cancellation at safe points
-5. add `/cancel run <id>` to `make ops`
-6. record audit and operator-visible status transitions
+1. `cancelling` and `cancelled` in run state
+2. `RunControlStore` as a separate operator-intent store
+3. `OperatorService.cancel_run(run_id)`
+4. cooperative cancellation checks in the harness runner path
+5. `/cancel run <id>` in `make ops`
+6. operator-visible status changes in the dashboard
 
-That is enough to make the first operator action real.
+The implemented runtime contract is:
+
+- the operator requests cancellation
+- the run moves to `cancelling`
+- the harness stops at the next safe boundary
+- the final run state becomes `cancelled`
+
+This first slice is intentionally conservative.
+
+It does **not** attempt:
+
+- forced shell termination
+- mid-request MCP interruption
+- rollback of already-written files
+- full distributed cancellation across remote ACP workers
+
+That is enough to make the first operator action real without making the runtime unsafe.
 
 ## What Can Wait
 

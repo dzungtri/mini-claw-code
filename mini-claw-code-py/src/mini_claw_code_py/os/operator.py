@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ..session import SessionRecord, SessionStore
 from .agent_registry import HostedAgentRegistry
+from .control import RunControlStore
 from .session_router import RouteStore, SessionRoute
 from .work import GoalStore, RunRecord, RunStore, TaskStore, TeamRegistry
 
@@ -59,6 +60,7 @@ class OperatorService:
         goals: GoalStore | None = None,
         tasks: TaskStore | None = None,
         runs: RunStore,
+        controls: RunControlStore | None = None,
     ) -> None:
         self.registry = registry
         self.teams = teams
@@ -67,6 +69,7 @@ class OperatorService:
         self.goals = goals
         self.tasks = tasks
         self.runs = runs
+        self.controls = controls or RunControlStore(runs.root)
 
     @classmethod
     def discover_default(cls, *, cwd: Path | None = None, home: Path | None = None) -> "OperatorService":
@@ -82,6 +85,7 @@ class OperatorService:
             goals=GoalStore(os_root),
             tasks=TaskStore(os_root),
             runs=RunStore(os_root),
+            controls=RunControlStore(os_root),
         )
 
     def snapshot(self, *, run_limit: int = 20, session_limit: int = 20) -> OperatorSnapshot:
@@ -89,7 +93,7 @@ class OperatorService:
         sessions = self.sessions.list_recent(limit=session_limit)
         return OperatorSnapshot(
             summary=OperatorSummary(
-                active_runs=sum(1 for run in runs if run.status == "running"),
+                active_runs=sum(1 for run in runs if run.status in {"running", "cancelling"}),
                 completed_runs=sum(1 for run in runs if run.status == "completed"),
                 failed_runs=sum(1 for run in runs if run.status == "failed"),
                 total_tokens=sum(run.total_tokens for run in runs),
@@ -108,6 +112,24 @@ class OperatorService:
     def inspect_run(self, run_id: str) -> RunRecord | None:
         return self.runs.get(run_id)
 
+    def cancel_run(
+        self,
+        run_id: str,
+        *,
+        actor: str = "operator",
+        reason: str = "",
+    ) -> str:
+        run = self.runs.get(run_id)
+        if run is None:
+            raise KeyError(f"unknown run: {run_id}")
+        if run.status == "running":
+            self.controls.request_cancel(run_id, actor=actor, reason=reason)
+            self.runs.mark_cancelling(run_id)
+            return f"Cancellation requested for {run_id}."
+        if run.status == "cancelling":
+            return f"Run {run_id} is already cancelling."
+        return f"Run {run_id} is already {run.status}."
+
     def list_routes(self) -> list[SessionRoute]:
         return self.routes.list()
 
@@ -119,7 +141,7 @@ class OperatorService:
         views: list[AgentStatusView] = []
         for definition in self.registry.all():
             agent_runs = [run for run in active_runs if run.agent_name == definition.name]
-            active_count = sum(1 for run in agent_runs if run.status == "running")
+            active_count = sum(1 for run in agent_runs if run.status in {"running", "cancelling"})
             state = "busy" if active_count else "idle"
             views.append(
                 AgentStatusView(
@@ -147,7 +169,7 @@ class OperatorService:
                     name=team.name,
                     description=team.description,
                     lead_agent=team.lead_agent,
-                    active_runs=sum(1 for run in team_runs if run.status == "running"),
+                    active_runs=sum(1 for run in team_runs if run.status in {"running", "cancelling"}),
                     total_tokens=sum(run.total_tokens for run in team_runs),
                     estimated_total_cost_usd=sum(run.estimated_total_cost_usd for run in team_runs),
                 )

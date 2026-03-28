@@ -9,6 +9,7 @@ from ..telemetry import resolve_pricing_profile
 from ..types import Message
 from .agent_registry import HostedAgentFactory, HostedAgentRegistry
 from .bus import MessageBus
+from .control import RunControlStore
 from .envelopes import EventEnvelope, MessageEnvelope
 from .session_router import SessionRoute, SessionRouter
 from .work import RunRecord, RunStore
@@ -44,6 +45,7 @@ class TurnRunner:
         router: SessionRouter,
         sessions: "SessionStore",
         runs: RunStore,
+        controls: RunControlStore | None = None,
         bus: MessageBus | None = None,
     ) -> None:
         self.registry = registry
@@ -51,6 +53,7 @@ class TurnRunner:
         self.router = router
         self.sessions = sessions
         self.runs = runs
+        self.controls = controls or RunControlStore(runs.root)
         self.bus = bus
 
     async def run(
@@ -105,7 +108,11 @@ class TurnRunner:
         observer = _RunObserver()
         relay = asyncio.create_task(_relay_events(internal_queue, queue, observer))
         try:
-            reply_text = await agent.execute(history, internal_queue)
+            reply_text = await agent.execute(
+                history,
+                internal_queue,
+                should_cancel=lambda: self.controls.is_cancel_requested(run.run_id),
+            )
             await relay
             turn_count = len(agent.token_usage_tracker().turns()) - turns_before
             prompt_tokens = agent.token_usage_tracker().total_prompt_tokens() - prompt_before
@@ -115,6 +122,7 @@ class TurnRunner:
             output_cost = pricing.output_cost(completion_tokens)
             total_cost = input_cost + output_cost
             context_pressure = agent.estimate_context_pressure_percent(history)
+            final_status = "cancelled" if agent.last_exit_reason() == "cancelled" else "completed"
             session = self.sessions.save_runtime(
                 session,
                 messages=history,
@@ -124,7 +132,7 @@ class TurnRunner:
             )
             run = self.runs.finish(
                 run.run_id,
-                status="completed",
+                status=final_status,
                 turn_count=turn_count,
                 tool_call_count=observer.tool_call_count,
                 subagent_count=observer.subagent_count,
@@ -139,10 +147,17 @@ class TurnRunner:
                 provider_name=pricing.provider_name,
                 model_name=pricing.model_name,
             )
+            if self.controls.is_cancel_requested(run.run_id):
+                self.controls.resolve(
+                    run.run_id,
+                    result="cancelled" if final_status == "cancelled" else "completed",
+                )
         except Exception:
             if not relay.done():
                 relay.cancel()
             self.runs.finish(run.run_id, status="failed")
+            if self.controls.is_cancel_requested(run.run_id):
+                self.controls.resolve(run.run_id, result="rejected")
             await self._publish_event(
                 EventEnvelope(
                     kind="run_finished",
@@ -180,7 +195,7 @@ class TurnRunner:
                     "run_id": run.run_id,
                     "session_id": session.id,
                     "target_agent": definition.name,
-                    "status": "completed",
+                    "status": run.status,
                     "outbound_message_id": outbound.message_id,
                 },
             )

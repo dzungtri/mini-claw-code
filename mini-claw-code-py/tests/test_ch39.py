@@ -154,7 +154,7 @@ def test_ch39_goal_task_and_run_stores_are_file_backed_and_filterable(tmp_path: 
 def test_ch39_status_constants_and_validation_are_explicit(tmp_path: Path) -> None:
     assert GOAL_STATUSES == ("pending", "in_progress", "blocked", "completed")
     assert TASK_STATUSES == ("pending", "in_progress", "blocked", "completed")
-    assert RUN_STATUSES == ("running", "completed", "failed", "cancelled")
+    assert RUN_STATUSES == ("running", "cancelling", "completed", "failed", "cancelled")
 
     root = default_os_state_root(tmp_path)
     goals = GoalStore(root)

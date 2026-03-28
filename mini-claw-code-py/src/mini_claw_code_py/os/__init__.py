@@ -8,6 +8,7 @@ from .agent_registry import (
     parse_agent_registry,
 )
 from .bus import MessageBus
+from .control import RunControlRecord, RunControlStore
 from .envelopes import (
     EventEnvelope,
     MessageEnvelope,
@@ -51,6 +52,8 @@ __all__ = [
     "HostedAgentFactory",
     "HostedAgentRegistry",
     "MessageBus",
+    "RunControlRecord",
+    "RunControlStore",
     "MessageEnvelope",
     "AgentStatusView",
     "OperatorService",

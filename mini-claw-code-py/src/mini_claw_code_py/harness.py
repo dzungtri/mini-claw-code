@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 
 from .artifacts import (
     ArtifactCatalog,
@@ -154,6 +154,7 @@ class HarnessAgent:
         self._control_profile_name = "balanced"
         self._token_usage_enabled = False
         self._token_usage_tracker = TokenUsageTracker()
+        self._last_exit_reason = "completed"
         self.plan_system_prompt = DEFAULT_PLAN_PROMPT_TEMPLATE
         self.execution_system_prompt = DEFAULT_SYSTEM_PROMPT_TEMPLATE
         self.exit_plan_def = ToolDefinition.new(
@@ -643,15 +644,21 @@ class HarnessAgent:
         self,
         messages: list[Message],
         events: "asyncio.Queue[AgentEvent]",
+        should_cancel: Callable[[], bool] | None = None,
     ) -> str:
         self._set_system_prompt(messages, self._effective_prompt(self.execution_system_prompt))
-        return await self._run_loop(messages, None, events)
+        return await self._run_loop(messages, None, events, should_cancel=should_cancel)
+
+    def last_exit_reason(self) -> str:
+        return self._last_exit_reason
 
     async def _run_loop(
         self,
         messages: list[Message],
         allowed: set[str] | None,
         events: "asyncio.Queue[AgentEvent]",
+        *,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> str:
         async with AsyncExitStack() as stack:
             runtime_tools = self.tools.copy()
@@ -746,6 +753,13 @@ class HarnessAgent:
             recent_tool_signatures: list[str] = []
 
             while True:
+                if allowed is None and should_cancel is not None and should_cancel():
+                    text = "Run cancelled by operator."
+                    self._last_exit_reason = "cancelled"
+                    await events.put(AgentNotice(text))
+                    await events.put(AgentDone(text))
+                    return text
+
                 all_defs = runtime_tools.definitions()
                 defs = [definition for definition in all_defs if allowed is None or definition.name in allowed]
                 if allowed is not None:
@@ -791,6 +805,7 @@ class HarnessAgent:
                     text = (turn.text or "").strip()
                     if not text:
                         text = "I don't have a textual reply for that turn. Please try again."
+                    self._last_exit_reason = "completed"
                     messages.append(Message.assistant(turn))
                     artifact_event = self._refresh_artifacts(artifact_before)
                     if artifact_event is not None:
@@ -824,6 +839,13 @@ class HarnessAgent:
                 subagent_briefs: list[str] = []
 
                 for call in turn.tool_calls:
+                    if allowed is None and should_cancel is not None and should_cancel():
+                        text = "Run cancelled by operator."
+                        self._last_exit_reason = "cancelled"
+                        await events.put(AgentNotice(text))
+                        await events.put(AgentDone(text))
+                        return text
+
                     if allowed is not None and call.name == "exit_plan":
                         results.append((call.id, "Plan submitted for review."))
                         exit_plan = True

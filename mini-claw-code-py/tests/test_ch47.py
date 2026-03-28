@@ -114,3 +114,39 @@ async def test_ch47_operator_app_renders_dashboard_and_inspects_run(
         assert detail.display is True
         assert result.context.run.run_id in str(detail.content)
         assert "estimated_total_cost" in str(detail.content)
+
+
+@pytest.mark.asyncio
+async def test_ch47_operator_app_command_input_accepts_spaces(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    (tmp_path / "home").mkdir()
+    monkeypatch.setenv("MINI_CLAW_INPUT_COST_PER_MILLION_USD", "3")
+    monkeypatch.setenv("MINI_CLAW_OUTPUT_COST_PER_MILLION_USD", "5")
+    runner = _build_runner(tmp_path)
+    result = await runner.run(
+        MessageEnvelope(
+            source="cli",
+            target_agent="superagent",
+            thread_key="cli:local",
+            kind="user_message",
+            content="Hello",
+        )
+    )
+
+    app = OperatorApp(OperatorService.discover_default(cwd=tmp_path, home=tmp_path / "home"))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        command = app.query_one("#command")
+        assert command.has_focus
+        await pilot.press("/", "i", "n", "s", "p", "e", "c", "t", "space", "r", "u", "n", "space")
+        await pilot.pause()
+        assert command.value == "/inspect run "
+
+        await pilot.press(*result.context.run.run_id, "enter")
+        await pilot.pause()
+
+        detail = app.query_one("#detail", Static)
+        assert result.context.run.run_id in str(detail.content)
