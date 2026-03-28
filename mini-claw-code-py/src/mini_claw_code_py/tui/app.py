@@ -10,11 +10,14 @@ from mini_claw_code_py import (
     Message,
     MessageEnvelope,
     OpenRouterProvider,
+    GoalStore,
     RunStore,
+    SessionWorkStore,
     SessionRoute,
     SessionRecord,
     SessionStore,
     SessionRouter,
+    TaskStore,
     TeamRegistry,
     TurnRunner,
     UserInputRequest,
@@ -51,6 +54,10 @@ async def run_cli(*, cwd: Path | None = None) -> None:
     store = SessionStore(workspace / ".mini-claw" / "sessions")
     router = SessionRouter(default_route_store(workspace), store)
     runs = RunStore(default_os_state_root(workspace))
+    teams = TeamRegistry.discover_default(cwd=workspace, home=Path.home())
+    goals = GoalStore(default_os_state_root(workspace))
+    tasks = TaskStore(default_os_state_root(workspace))
+    session_work = SessionWorkStore(default_os_state_root(workspace))
     ui = ConsoleUI()
     registry = HostedAgentRegistry.discover_default(cwd=workspace, home=Path.home())
     factory = HostedAgentFactory(
@@ -64,6 +71,10 @@ async def run_cli(*, cwd: Path | None = None) -> None:
         router=router,
         sessions=store,
         runs=runs,
+        teams=teams,
+        goals=goals,
+        tasks=tasks,
+        session_work=session_work,
     )
 
     agent = build_agent(provider, cwd=workspace, input_queue=input_queue)
@@ -99,6 +110,9 @@ async def run_cli(*, cwd: Path | None = None) -> None:
                 store=store,
                 router=router,
                 runs=runs,
+                goals=goals,
+                tasks=tasks,
+                session_work=session_work,
                 agent=agent,
                 current_route=current_route,
                 current_session=current_session,
@@ -158,6 +172,9 @@ async def _handle_command(
     store: SessionStore,
     router: SessionRouter,
     runs: RunStore,
+    goals: GoalStore | None = None,
+    tasks: TaskStore | None = None,
+    session_work: SessionWorkStore | None = None,
     agent: HarnessAgent,
     current_route: SessionRoute,
     current_session: SessionRecord,
@@ -193,6 +210,26 @@ async def _handle_command(
     if prompt == "/teams":
         ui.print_teams(TeamRegistry.discover_default(cwd=workspace, home=Path.home()))
         return True, agent, current_route, current_session, history, plan_mode
+    if prompt == "/work":
+        ui.print_work_status(
+            session_id=current_session.id,
+            binding=None if session_work is None else session_work.get(current_session.id),
+            goals=goals,
+            tasks=tasks,
+        )
+        return True, agent, current_route, current_session, history, plan_mode
+    if prompt == "/goals":
+        if goals is None:
+            ui.print_usage("Goal store is not available.")
+            return True, agent, current_route, current_session, history, plan_mode
+        ui.print_goals(goals)
+        return True, agent, current_route, current_session, history, plan_mode
+    if prompt == "/tasks":
+        if tasks is None:
+            ui.print_usage("Task store is not available.")
+            return True, agent, current_route, current_session, history, plan_mode
+        ui.print_tasks(tasks)
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/routes":
         ui.print_routes(router.routes)
         return True, agent, current_route, current_session, history, plan_mode
@@ -200,7 +237,11 @@ async def _handle_command(
         ui.print_runs(runs)
         return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/session":
-        ui.print_session_status(current_session, route=current_route)
+        ui.print_session_status(
+            current_session,
+            route=current_route,
+            binding=None if session_work is None else session_work.get(current_session.id),
+        )
         return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/sessions":
         records = ui.print_session_list(store)

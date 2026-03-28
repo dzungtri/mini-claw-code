@@ -28,10 +28,34 @@ The first slice should stay small and local:
 - a goal store
 - a task store
 - a run store
+- a session-to-work binding store
 
 All of them should be local and file-backed.
 
 That keeps the model visible and testable before we wire it into routing and runners.
+
+## Front-Door Work Binding
+
+The first real `make cli` path still needs one more bridge between:
+
+- the routed harness session
+- the OS work model
+
+For the first production-minded slice, the simplest good rule is:
+
+- one routed session gets one active goal/task binding
+
+That means:
+
+- the first meaningful user turn in a new session creates a goal
+- the OS also creates one front-door task for the current target agent
+- later turns in that same session reuse that goal/task binding
+
+This is intentionally conservative.
+
+We are not trying to infer a full project plan yet.
+
+We are only making sure the front door has a stable work identity inside the OS.
 
 ## The Hierarchy
 
@@ -233,6 +257,7 @@ The first local shape should be:
     goals.json
     tasks.json
     runs.json
+    session_work.json
 ```
 
 And the team registry should stay near the workspace root:
@@ -250,6 +275,29 @@ That mirrors the split we already use elsewhere:
 
 - config files define the system
 - `.mini-claw/` stores runtime state
+
+## Session Work Binding
+
+The first binding record should include:
+
+- `session_id`
+- `goal_id`
+- `task_id`
+- `team_id`
+- `created_at`
+- `updated_at`
+
+This binding is not routing.
+
+Routing still answers:
+
+- which session should receive the next turn?
+
+The work binding answers:
+
+- which OS goal/task does this session currently represent?
+
+Keeping those separate is important.
 
 ## Required First-Slice Operations
 
@@ -284,6 +332,12 @@ The first stores should support:
 - list runs
 - filter by task
 
+### Session Work Store
+
+- get binding for one session
+- bind session to goal/task/team
+- list bindings
+
 That is enough to support the next chapters cleanly.
 
 ## What We Intentionally Skip
@@ -305,7 +359,8 @@ Those are real concerns, but they are not the first backbone.
 The early CLI should at least be able to show:
 
 - discovered teams
-- current goal/task/run tables later
+- current goal/task/run tables
+- current session work binding
 
 For this chapter, team visibility is enough.
 
@@ -339,5 +394,8 @@ The first concrete slice should introduce:
 And it should give the TUI one simple operator surface:
 
 - `/teams`
+- `/work`
+- `/goals`
+- `/tasks`
 
 That gives us a visible coordination backbone before we add session routing and bus-driven execution.

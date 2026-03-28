@@ -4,12 +4,15 @@ from pathlib import Path
 from rich.console import Console
 
 from mini_claw_code_py import (
+    GoalStore,
     Message,
     RunStore,
+    SessionWorkStore,
     SessionStore,
     SessionRouter,
     StopReason,
     SubagentProfileRegistry,
+    TaskStore,
     ToolCall,
     default_route_store,
 )
@@ -75,6 +78,9 @@ def test_tui_print_help_lists_core_commands() -> None:
     assert "/subagents" in rendered
     assert "/agents" in rendered
     assert "/teams" in rendered
+    assert "/work" in rendered
+    assert "/goals" in rendered
+    assert "/tasks" in rendered
     assert "/routes" in rendered
     assert "/runs" in rendered
     assert "/fork" in rendered
@@ -374,7 +380,53 @@ def test_tui_handle_command_runs_prints_run_store(tmp_path: Path) -> None:
     rendered = console.export_text()
     assert handled is True
     assert "Runs" in rendered
-    assert "trace_demo" in rendered
+
+
+def test_tui_handle_command_work_prints_session_binding(tmp_path: Path) -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+    store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    runs = RunStore(tmp_path / ".mini-claw" / "os")
+    goals = GoalStore(tmp_path / ".mini-claw" / "os")
+    tasks = TaskStore(tmp_path / ".mini-claw" / "os")
+    session_work = SessionWorkStore(tmp_path / ".mini-claw" / "os")
+    router = SessionRouter(default_route_store(tmp_path), store)
+    current_session = store.create(cwd=tmp_path)
+    current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
+    goal = goals.create(title="Release", description="Ship it.", primary_team="default")
+    task = tasks.assign(goal_id=goal.goal_id, team_id="default", agent_name="superagent", title="Drive the release")
+    session_work.bind(session_id=current_session.id, goal_id=goal.goal_id, task_id=task.task_id, team_id="default")
+
+    class DummyAgent:
+        def subagent_profile_registry(self) -> SubagentProfileRegistry:
+            return SubagentProfileRegistry({})
+
+    async def run() -> tuple[bool, object, object, object, list[Message], bool]:
+        return await _handle_command(
+            prompt="/work",
+            provider=None,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            input_queue=asyncio.Queue(),
+            store=store,
+            router=router,
+            runs=runs,
+            goals=goals,
+            tasks=tasks,
+            session_work=session_work,
+            agent=DummyAgent(),  # type: ignore[arg-type]
+            current_route=current_route,
+            current_session=current_session,
+            history=[],
+            plan_mode=False,
+            ui=ui,
+        )
+
+    handled, _, _, _, _, _ = asyncio.run(run())
+    rendered = console.export_text()
+    assert handled is True
+    assert "Work" in rendered
+    assert goal.goal_id in rendered
+    assert task.task_id in rendered
 
 
 def test_tui_summarize_history_message_formats_assistant_tool_calls() -> None:

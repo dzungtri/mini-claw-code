@@ -10,10 +10,14 @@ from mini_claw_code_py import (
     MessageBus,
     MessageEnvelope,
     MockStreamProvider,
+    GoalStore,
     RunStore,
+    SessionWorkStore,
     SessionRouter,
     SessionStore,
     StopReason,
+    TaskStore,
+    TeamRegistry,
     TurnRunner,
     default_os_state_root,
     default_route_store,
@@ -30,6 +34,7 @@ def _build_runner(
 ) -> TurnRunner:
     input_queue: asyncio.Queue[UserInputRequest] = asyncio.Queue()
     sessions = SessionStore(root / ".mini-claw" / "sessions")
+    os_root = default_os_state_root(root)
     return TurnRunner(
         registry=HostedAgentRegistry.discover_default(cwd=root, home=root / "home"),
         factory=HostedAgentFactory(
@@ -39,7 +44,11 @@ def _build_runner(
         ),
         router=SessionRouter(default_route_store(root), sessions),
         sessions=sessions,
-        runs=RunStore(default_os_state_root(root)),
+        runs=RunStore(os_root),
+        teams=TeamRegistry.discover_default(cwd=root, home=root / "home"),
+        goals=GoalStore(os_root),
+        tasks=TaskStore(os_root),
+        session_work=SessionWorkStore(os_root),
         bus=bus,
     )
 
@@ -138,6 +147,38 @@ def test_ch41_turn_runner_reuses_routed_session_across_turns(tmp_path: Path) -> 
 
     assert second.context.session.id == first.context.session.id
     assert len(second.history) > len(first.history)
+
+
+def test_ch41_turn_runner_creates_session_work_binding_for_frontdoor_session(tmp_path: Path) -> None:
+    (tmp_path / "home").mkdir()
+    provider = MockStreamProvider(
+        deque([AssistantTurn(text="First reply.", tool_calls=[], stop_reason=StopReason.STOP)])
+    )
+    runner = _build_runner(tmp_path, provider=provider)
+
+    result = asyncio.run(
+        runner.run(
+            MessageEnvelope(
+                source="cli",
+                target_agent="superagent",
+                thread_key="cli:local",
+                kind="user_message",
+                content="Build the release candidate.",
+            )
+        )
+    )
+
+    os_root = default_os_state_root(tmp_path)
+    work = SessionWorkStore(os_root).get(result.context.session.id)
+    task = TaskStore(os_root).get(result.context.run.task_id or "")
+    goal = GoalStore(os_root).get(work.goal_id if work is not None else "")
+
+    assert work is not None
+    assert result.context.run.task_id == work.task_id
+    assert task is not None
+    assert task.status == "in_progress"
+    assert goal is not None
+    assert goal.status == "in_progress"
 
 
 def test_ch41_turn_runner_publishes_bus_events_and_outbound_message(tmp_path: Path) -> None:

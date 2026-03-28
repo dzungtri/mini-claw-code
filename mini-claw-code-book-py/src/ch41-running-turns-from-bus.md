@@ -135,6 +135,22 @@ without already being attached to a formal team task.
 
 Later chapters can connect those more tightly.
 
+## Current Front-Door Refinement
+
+The next useful refinement for the real `make cli` path is:
+
+- if the inbound envelope does not already specify a `task_id`
+- and the routed session has no work binding yet
+- create one goal and one front-door task for that session
+
+Then the runner can attach later runs in that session to the bound task.
+
+This is a good first compromise:
+
+- the runner stays small
+- the front door becomes real OS work
+- we still avoid premature full planning/orchestration logic
+
 ## Event Streaming
 
 The first runner should stream the same harness runtime events the CLI already knows how to render.

@@ -29,6 +29,7 @@ from mini_claw_code_py import (
     SessionRoute,
     SessionRecord,
     SessionStore,
+    SessionWorkBinding,
     UserInputRequest,
     render_runtime_status,
     render_surface_block,
@@ -57,6 +58,9 @@ DEFAULT_COMMAND_ROWS: Final[tuple[tuple[str, str], ...]] = (
     ("/subagents", "show loaded subagent profiles"),
     ("/agents", "show hosted agents from the registry"),
     ("/teams", "show discovered teams"),
+    ("/work", "show the current session work binding"),
+    ("/goals", "show tracked OS goals"),
+    ("/tasks", "show tracked OS tasks"),
     ("/routes", "show current session routes"),
     ("/runs", "show recent OS runs"),
     ("/session", "show current session"),
@@ -272,13 +276,50 @@ class ConsoleUI:
     def print_teams(self, registry: object) -> None:
         self._print_lines_panel("Teams", registry.render().splitlines())
 
+    def print_work_status(
+        self,
+        *,
+        session_id: str,
+        binding: SessionWorkBinding | None,
+        goals: object | None,
+        tasks: object | None,
+    ) -> None:
+        if binding is None:
+            self._print_lines_panel("Work", [f"Session {session_id} has no active work binding yet."])
+            return
+        goal = None if goals is None else goals.get(binding.goal_id)
+        task = None if tasks is None else tasks.get(binding.task_id)
+        lines = [
+            f"session={session_id}",
+            f"team={binding.team_id}",
+            f"goal={binding.goal_id}",
+            f"task={binding.task_id}",
+        ]
+        if goal is not None:
+            lines.append(f"goal_status={goal.status} title={goal.title}")
+        if task is not None:
+            lines.append(f"task_status={task.status} agent={task.agent_name} title={task.title}")
+        self._print_lines_panel("Work", lines)
+
+    def print_goals(self, store: object) -> None:
+        self._print_lines_panel("Goals", store.render().splitlines())
+
+    def print_tasks(self, store: object) -> None:
+        self._print_lines_panel("Tasks", store.render().splitlines())
+
     def print_routes(self, store: object) -> None:
         self._print_lines_panel("Routes", store.render().splitlines())
 
     def print_runs(self, store: object) -> None:
         self._print_lines_panel("Runs", store.render().splitlines())
 
-    def print_session_status(self, session: SessionRecord, *, route: SessionRoute | None = None) -> None:
+    def print_session_status(
+        self,
+        session: SessionRecord,
+        *,
+        route: SessionRoute | None = None,
+        binding: SessionWorkBinding | None = None,
+    ) -> None:
         table = Table.grid(padding=(0, 1))
         table.add_column(style=theme.MUTED_BOLD, width=8)
         table.add_column(style=theme.BODY)
@@ -287,6 +328,10 @@ class ConsoleUI:
         if route is not None:
             table.add_row("agent", Text(route.target_agent, style=theme.BODY))
             table.add_row("thread", Text(route.thread_key, style=theme.BODY))
+        if binding is not None:
+            table.add_row("goal", Text(binding.goal_id, style=theme.BODY))
+            table.add_row("task", Text(binding.task_id, style=theme.BODY))
+            table.add_row("team", Text(binding.team_id, style=theme.BODY))
         table.add_row("updated", Text(session.updated_at, style=theme.SUBTLE))
         self.console.print(
             Panel(

@@ -85,6 +85,18 @@ class TeamRegistry:
             lines.append(f"  members={', '.join(team.member_agents)}")
         return "\n".join(lines)
 
+    def team_for_agent(self, agent_name: str) -> TeamDefinition:
+        normalized = agent_name.strip()
+        if not normalized:
+            return self.require("default")
+        for team in self.all():
+            if team.lead_agent == normalized:
+                return team
+        for team in self.all():
+            if normalized in team.member_agents:
+                return team
+        return self.require("default")
+
 
 @dataclass(slots=True)
 class GoalRecord:
@@ -190,6 +202,34 @@ class RunRecord:
         return cls(**payload)
 
 
+@dataclass(slots=True)
+class SessionWorkBinding:
+    session_id: str
+    goal_id: str
+    task_id: str
+    team_id: str
+    created_at: str
+    updated_at: str
+
+    def __post_init__(self) -> None:
+        self.session_id = self.session_id.strip()
+        self.goal_id = self.goal_id.strip()
+        self.task_id = self.task_id.strip()
+        self.team_id = self.team_id.strip()
+        if not self.session_id:
+            raise ValueError("session_id cannot be empty")
+        if not self.goal_id:
+            raise ValueError("goal_id cannot be empty")
+        if not self.task_id:
+            raise ValueError("task_id cannot be empty")
+        if not self.team_id:
+            raise ValueError("team_id cannot be empty")
+
+    @classmethod
+    def from_json_dict(cls, raw: Mapping[str, Any]) -> "SessionWorkBinding":
+        return cls(**raw)
+
+
 class GoalStore:
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).expanduser().resolve()
@@ -219,6 +259,18 @@ class GoalStore:
 
     def list(self) -> list[GoalRecord]:
         return [GoalRecord.from_json_dict(raw) for raw in _read_store(self.path)]
+
+    def render(self, *, limit: int = 10) -> str:
+        records = self.list()
+        if not records:
+            return "Goals: none."
+        lines = ["Goals:"]
+        for record in sorted(records, key=lambda item: item.updated_at, reverse=True)[:limit]:
+            lines.append(
+                f"- {record.goal_id}: status={record.status} team={record.primary_team} title={record.title}"
+            )
+            lines.append(f"  updated={record.updated_at}")
+        return "\n".join(lines)
 
     def update_status(self, goal_id: str, status: str) -> GoalRecord:
         _validate_status(status, GOAL_STATUSES, "goal")
@@ -279,6 +331,18 @@ class TaskStore:
         if team_id is not None:
             records = [record for record in records if record.team_id == team_id]
         return records
+
+    def render(self, *, limit: int = 10) -> str:
+        records = self.list()
+        if not records:
+            return "Tasks: none."
+        lines = ["Tasks:"]
+        for record in sorted(records, key=lambda item: item.updated_at, reverse=True)[:limit]:
+            lines.append(
+                f"- {record.task_id}: agent={record.agent_name} status={record.status} team={record.team_id}"
+            )
+            lines.append(f"  goal={record.goal_id} title={record.title}")
+        return "\n".join(lines)
 
     def update_status(self, task_id: str, status: str) -> TaskRecord:
         _validate_status(status, TASK_STATUSES, "task")
@@ -483,6 +547,72 @@ class RunStore:
         _write_store(self.path, [asdict(record) for record in records])
 
 
+class SessionWorkStore:
+    def __init__(self, root: str | Path) -> None:
+        self.root = Path(root).expanduser().resolve()
+        self.path = self.root / "session_work.json"
+
+    def get(self, session_id: str) -> SessionWorkBinding | None:
+        for record in self.list():
+            if record.session_id == session_id:
+                return record
+        return None
+
+    def list(self) -> list[SessionWorkBinding]:
+        return [SessionWorkBinding.from_json_dict(raw) for raw in _read_store(self.path)]
+
+    def bind(
+        self,
+        *,
+        session_id: str,
+        goal_id: str,
+        task_id: str,
+        team_id: str,
+    ) -> SessionWorkBinding:
+        now = utc_now_iso()
+        records = self.list()
+        for index, record in enumerate(records):
+            if record.session_id != session_id:
+                continue
+            updated = SessionWorkBinding(
+                session_id=session_id,
+                goal_id=goal_id,
+                task_id=task_id,
+                team_id=team_id,
+                created_at=record.created_at,
+                updated_at=now,
+            )
+            records[index] = updated
+            self._write(records)
+            return updated
+        created = SessionWorkBinding(
+            session_id=session_id,
+            goal_id=goal_id,
+            task_id=task_id,
+            team_id=team_id,
+            created_at=now,
+            updated_at=now,
+        )
+        records.append(created)
+        self._write(records)
+        return created
+
+    def render(self) -> str:
+        records = self.list()
+        if not records:
+            return "Session work bindings: none."
+        lines = ["Session work bindings:"]
+        for record in records:
+            lines.append(
+                f"- {record.session_id}: goal={record.goal_id} task={record.task_id} team={record.team_id}"
+            )
+            lines.append(f"  updated={record.updated_at}")
+        return "\n".join(lines)
+
+    def _write(self, records: list[SessionWorkBinding]) -> None:
+        _write_store(self.path, [asdict(record) for record in records])
+
+
 def default_team_config_paths(
     *,
     cwd: Path | None = None,
@@ -519,6 +649,15 @@ def default_team_definition() -> TeamDefinition:
 def default_os_state_root(cwd: Path | None = None) -> Path:
     target_cwd = Path.cwd() if cwd is None else Path(cwd)
     return (target_cwd / ".mini-claw" / "os").resolve()
+
+
+def derive_work_title(text: str, *, max_chars: int = 72) -> str:
+    normalized = " ".join(text.strip().split())
+    if not normalized:
+        return "Untitled goal"
+    if len(normalized) > max_chars:
+        return normalized[: max_chars - 3].rstrip() + "..."
+    return normalized
 
 
 def _create_os_id(prefix: str) -> str:

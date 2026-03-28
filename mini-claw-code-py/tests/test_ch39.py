@@ -5,6 +5,7 @@ import pytest
 from mini_claw_code_py import (
     GOAL_STATUSES,
     RUN_STATUSES,
+    SessionWorkStore,
     TASK_STATUSES,
     TEAM_CONFIG_FILE_NAME,
     GoalStore,
@@ -149,6 +150,39 @@ def test_ch39_goal_task_and_run_stores_are_file_backed_and_filterable(tmp_path: 
     assert (root / "goals.json").exists()
     assert (root / "tasks.json").exists()
     assert (root / "runs.json").exists()
+
+
+def test_ch39_team_registry_can_pick_team_for_agent_and_session_work_is_file_backed(tmp_path: Path) -> None:
+    config_path = tmp_path / TEAM_CONFIG_FILE_NAME
+    config_path.write_text(
+        (
+            '{\n'
+            '  "teams": {\n'
+            '    "product-a": {\n'
+            '      "description": "Delivery team.",\n'
+            '      "lead_agent": "superagent",\n'
+            '      "member_agents": ["backend-dev", "frontend-dev"]\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+    registry = TeamRegistry.discover([config_path])
+    root = default_os_state_root(tmp_path)
+    work = SessionWorkStore(root)
+
+    binding = work.bind(
+        session_id="sess_demo",
+        goal_id="goal_demo",
+        task_id="task_demo",
+        team_id=registry.team_for_agent("backend-dev").name,
+    )
+
+    assert registry.team_for_agent("backend-dev").name == "product-a"
+    assert registry.team_for_agent("unknown").name == "default"
+    assert work.get("sess_demo") == binding
+    assert (root / "session_work.json").exists()
 
 
 def test_ch39_status_constants_and_validation_are_explicit(tmp_path: Path) -> None:

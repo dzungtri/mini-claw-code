@@ -12,7 +12,15 @@ from .bus import MessageBus
 from .control import RunControlStore
 from .envelopes import EventEnvelope, MessageEnvelope
 from .session_router import SessionRoute, SessionRouter
-from .work import RunRecord, RunStore
+from .work import (
+    GoalStore,
+    RunRecord,
+    RunStore,
+    SessionWorkStore,
+    TaskStore,
+    TeamRegistry,
+    derive_work_title,
+)
 
 if TYPE_CHECKING:
     from ..harness import HarnessAgent
@@ -45,6 +53,10 @@ class TurnRunner:
         router: SessionRouter,
         sessions: "SessionStore",
         runs: RunStore,
+        teams: TeamRegistry | None = None,
+        goals: GoalStore | None = None,
+        tasks: TaskStore | None = None,
+        session_work: SessionWorkStore | None = None,
         controls: RunControlStore | None = None,
         bus: MessageBus | None = None,
     ) -> None:
@@ -53,6 +65,10 @@ class TurnRunner:
         self.router = router
         self.sessions = sessions
         self.runs = runs
+        self.teams = teams
+        self.goals = goals
+        self.tasks = tasks
+        self.session_work = session_work
         self.controls = controls or RunControlStore(runs.root)
         self.bus = bus
 
@@ -74,9 +90,16 @@ class TurnRunner:
         turns_before = len(agent.token_usage_tracker().turns())
         prompt_before = agent.token_usage_tracker().total_prompt_tokens()
         completion_before = agent.token_usage_tracker().total_completion_tokens()
+        task_id = _task_id_from_envelope(envelope)
+        if task_id is None:
+            task_id = self._resolve_or_create_session_task(
+                session_id=session.id,
+                agent_name=definition.name,
+                content=envelope.content,
+            )
 
         run = self.runs.start(
-            task_id=_task_id_from_envelope(envelope),
+            task_id=task_id,
             agent_name=definition.name,
             source=envelope.source,
             thread_key=envelope.thread_key,
@@ -232,6 +255,41 @@ class TurnRunner:
     async def _publish_event(self, envelope: EventEnvelope) -> None:
         if self.bus is not None:
             await self.bus.publish_event(envelope)
+
+    def _resolve_or_create_session_task(
+        self,
+        *,
+        session_id: str,
+        agent_name: str,
+        content: str,
+    ) -> str | None:
+        if self.goals is None or self.tasks is None or self.session_work is None or self.teams is None:
+            return None
+        existing = self.session_work.get(session_id)
+        if existing is not None:
+            return existing.task_id
+        title = derive_work_title(content)
+        team = self.teams.team_for_agent(agent_name)
+        goal = self.goals.create(
+            title=title,
+            description=content.strip(),
+            primary_team=team.name,
+        )
+        self.goals.update_status(goal.goal_id, "in_progress")
+        task = self.tasks.assign(
+            goal_id=goal.goal_id,
+            team_id=team.name,
+            agent_name=agent_name,
+            title=title,
+        )
+        self.tasks.update_status(task.task_id, "in_progress")
+        self.session_work.bind(
+            session_id=session_id,
+            goal_id=goal.goal_id,
+            task_id=task.task_id,
+            team_id=team.name,
+        )
+        return task.task_id
 
 
 def _message_from_envelope(envelope: MessageEnvelope) -> Message:
