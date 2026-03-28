@@ -153,6 +153,29 @@ def test_ch35_registry_prompt_section_lists_available_profiles(tmp_path: Path) -
     assert "- researcher: Research topics before writing." in section
 
 
+def test_ch35_registry_render_lists_tools_skills_and_turns(tmp_path: Path) -> None:
+    config_path = _write_subagents(
+        tmp_path / ".subagents.json",
+        {
+            "packaging-helper": {
+                "description": "Use for Python packaging tasks.",
+                "skills": ["python-packaging"],
+                "tools": ["read", "bash"],
+                "max_turns": 6,
+            }
+        },
+    )
+    registry = SubagentProfileRegistry.discover([config_path])
+
+    rendered = registry.render()
+
+    assert "Subagent profiles:" in rendered
+    assert "packaging-helper: Use for Python packaging tasks." in rendered
+    assert "tools: read, bash" in rendered
+    assert "skills: python-packaging" in rendered
+    assert "max_turns: 6" in rendered
+
+
 @pytest.mark.asyncio
 async def test_ch35_harness_uses_profile_specific_tools_and_skills(tmp_path: Path) -> None:
     _write_subagents(

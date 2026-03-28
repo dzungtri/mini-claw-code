@@ -53,6 +53,7 @@ DEFAULT_COMMAND_ROWS: Final[tuple[tuple[str, str], ...]] = (
     ("/todos", "show todo state"),
     ("/artifacts", "show tracked output artifacts"),
     ("/mcp", "show connected MCP catalog"),
+    ("/subagents", "show loaded subagent profiles"),
     ("/session", "show current session"),
     ("/sessions", "show recent sessions and select one to resume"),
     ("/rename <title>", "rename the current session"),
@@ -256,6 +257,9 @@ class ConsoleUI:
 
     def print_mcp(self, agent: object) -> None:
         self._print_lines_panel("MCP", agent.mcp_status_text().splitlines())
+
+    def print_subagents(self, agent: object) -> None:
+        self._print_lines_panel("Subagents", agent.subagent_profile_registry().render().splitlines())
 
     def print_session_status(self, session: SessionRecord) -> None:
         table = Table.grid(padding=(0, 1))

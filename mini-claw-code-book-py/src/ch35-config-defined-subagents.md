@@ -136,6 +136,31 @@ The config looks like this:
 }
 ```
 
+The repository now ships a small example too:
+
+```json
+{
+  "subagents": {
+    "packaging-helper": {
+      "description": "Use for Python packaging, pyproject.toml, build, publish, and wheel/sdist workflow tasks.",
+      "skills": ["python-packaging"],
+      "tools": ["read", "write", "edit", "bash"],
+      "max_turns": 6
+    }
+  }
+}
+```
+
+That example is intentionally important because it proves a profile can be useful with:
+
+- a description
+- a skill name
+- a tool subset
+
+There is no custom `system_prompt` in that example.
+
+The harness still builds a useful child prompt.
+
 This is intentionally small.
 
 The important point is that this file contains **profiles**, not executable code.
@@ -208,6 +233,24 @@ This is the “skills only should still work” requirement.
 It is also the main reason this design feels practical.
 
 Many users can define a useful specialist without writing a big custom prompt.
+
+In the real app, you can inspect what the runtime loaded with:
+
+```text
+/subagents
+```
+
+That command shows:
+
+- each loaded profile name
+- the description
+- the allowed tools
+- the selected skills
+- the effective turn limit
+
+This matters for learning.
+
+Config-defined subagents are much easier to trust when the runtime exposes what it loaded.
 
 ## Why `skills` Uses Skill Names
 

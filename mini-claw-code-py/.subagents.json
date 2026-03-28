@@ -1,0 +1,17 @@
+{
+  "subagents": {
+    "packaging-helper": {
+      "description": "Use for Python packaging, pyproject.toml, build, publish, and wheel/sdist workflow tasks.",
+      "skills": [
+        "python-packaging"
+      ],
+      "tools": [
+        "read",
+        "write",
+        "edit",
+        "bash"
+      ],
+      "max_turns": 6
+    }
+  }
+}

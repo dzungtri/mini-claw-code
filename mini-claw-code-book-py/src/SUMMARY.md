@@ -41,3 +41,4 @@
 - [Chapter 33: Advanced Control Policies](./ch33-advanced-control-policies.md)
 - [Chapter 34: MCP Resources and Prompt Surfaces](./ch34-mcp-resources-prompts.md)
 - [Chapter 35: Config-Defined Subagents](./ch35-config-defined-subagents.md)
+- [Chapter 36: From Harness to Agent OS](./ch36-harness-to-agent-os.md)

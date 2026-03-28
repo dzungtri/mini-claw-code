@@ -1,6 +1,9 @@
+import asyncio
+from pathlib import Path
+
 from rich.console import Console
 
-from mini_claw_code_py import Message, StopReason, ToolCall
+from mini_claw_code_py import Message, SessionStore, StopReason, SubagentProfileRegistry, ToolCall
 from mini_claw_code_py.types import AssistantTurn
 from mini_claw_code_py.tui import (
     ConsoleUI,
@@ -9,6 +12,7 @@ from mini_claw_code_py.tui import (
     summarize_tool_call,
 )
 from mini_claw_code_py.tui.console import summarize_history_message
+from mini_claw_code_py.tui.app import _handle_command
 
 
 def test_tui_resolve_option_answer_accepts_numeric_choice() -> None:
@@ -59,10 +63,107 @@ def test_tui_print_help_lists_core_commands() -> None:
     assert "/plan" in rendered
     assert "/artifacts" in rendered
     assert "/mcp" in rendered
+    assert "/subagents" in rendered
     assert "/fork" in rendered
     assert "/rename <title>" in rendered
     assert "/resume <id>" in rendered
     assert "/sessions" in rendered
+
+
+def test_tui_print_subagents_renders_profile_registry() -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+
+    class DummyAgent:
+        def subagent_profile_registry(self) -> SubagentProfileRegistry:
+            return SubagentProfileRegistry.discover(
+                [
+                    Path("/tmp/does-not-exist"),
+                ]
+            )
+
+    ui.print_subagents(DummyAgent())
+
+    rendered = console.export_text()
+    assert "Subagents" in rendered
+    assert "Subagent profiles: none." in rendered
+
+
+def test_tui_print_subagents_renders_loaded_profile_details(tmp_path: Path) -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+    config_path = tmp_path / ".subagents.json"
+    config_path.write_text(
+        (
+            '{\n'
+            '  "subagents": {\n'
+            '    "packaging-helper": {\n'
+            '      "description": "Use for packaging tasks.",\n'
+            '      "skills": ["python-packaging"],\n'
+            '      "tools": ["read", "bash"],\n'
+            '      "max_turns": 6\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    class DummyAgent:
+        def subagent_profile_registry(self) -> SubagentProfileRegistry:
+            return SubagentProfileRegistry.discover([config_path])
+
+    ui.print_subagents(DummyAgent())
+
+    rendered = console.export_text()
+    assert "packaging-helper" in rendered
+    assert "python-packaging" in rendered
+    assert "read, bash" in rendered
+    assert "6" in rendered
+
+
+def test_tui_handle_command_subagents_prints_registry(tmp_path: Path) -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+    store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    current_session = store.create(cwd=tmp_path)
+
+    class DummyAgent:
+        def subagent_profile_registry(self) -> SubagentProfileRegistry:
+            return SubagentProfileRegistry(
+                {
+                    "packaging-helper": next(
+                        iter(
+                            SubagentProfileRegistry.discover(
+                                [
+                                    _write_temp_subagent_config(tmp_path),
+                                ]
+                            ).all()
+                        )
+                    )
+                }
+            )
+
+    async def run() -> tuple[bool, object, object, list[Message], bool]:
+        return await _handle_command(
+            prompt="/subagents",
+            provider=None,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            input_queue=asyncio.Queue(),
+            store=store,
+            agent=DummyAgent(),  # type: ignore[arg-type]
+            current_session=current_session,
+            history=[],
+            plan_mode=False,
+            ui=ui,
+        )
+
+    handled, _, _, _, _ = asyncio.run(run())
+
+    rendered = console.export_text()
+    assert handled is True
+    assert "Subagents" in rendered
+    assert "packaging-helper" in rendered
 
 
 def test_tui_summarize_history_message_formats_assistant_tool_calls() -> None:
@@ -102,3 +203,23 @@ def test_tui_print_history_preview_renders_recent_context_panel() -> None:
     assert "Help me write a poem about rain." in rendered
     assert "Sure. Do you want it short or long?" in rendered
     assert "Saved draft to notes.md" in rendered
+
+
+def _write_temp_subagent_config(root: Path) -> Path:
+    config_path = root / ".subagents.json"
+    config_path.write_text(
+        (
+            '{\n'
+            '  "subagents": {\n'
+            '    "packaging-helper": {\n'
+            '      "description": "Use for packaging tasks.",\n'
+            '      "skills": ["python-packaging"],\n'
+            '      "tools": ["read", "bash"],\n'
+            '      "max_turns": 6\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+    return config_path

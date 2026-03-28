@@ -149,6 +149,9 @@ async def _handle_command(
     if prompt == "/mcp":
         ui.print_mcp(agent)
         return True, agent, current_session, history, plan_mode
+    if prompt == "/subagents":
+        ui.print_subagents(agent)
+        return True, agent, current_session, history, plan_mode
     if prompt == "/session":
         ui.print_session_status(current_session)
         return True, agent, current_session, history, plan_mode
