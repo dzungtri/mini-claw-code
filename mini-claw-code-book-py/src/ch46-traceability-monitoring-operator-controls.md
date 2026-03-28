@@ -2,53 +2,55 @@
 
 An Agent OS is not complete if it cannot be observed and controlled.
 
-This is one of the most important requirements in the whole system.
+By this point, the system can already:
 
-If we can run:
+- host agents
+- route sessions
+- run turns
+- drive background turns
+- expose an operator console
 
-- many agents
-- many teams
-- many goals
-- many sessions
-- many background services
+But until this chapter, the operator mostly saw summaries:
 
-then we also need to be able to:
+- runs
+- sessions
+- routes
+- totals
 
-- inspect what is happening
-- understand why it happened
-- find what is stuck
-- stop or cancel unsafe work
+That is useful, but still incomplete.
 
-In other words:
+We also need the OS to answer:
 
-an Agent OS needs something like a task manager.
+- what happened inside a run?
+- in what order did it happen?
+- which events belong to the same trace?
+
+This chapter implements the first real timeline layer.
 
 ## The Core Requirement
 
 Everything important in the OS should be traceable.
 
-That includes:
+At minimum that includes:
 
 - envelopes
-- goals
-- tasks
 - runs
 - sessions
-- agent handoffs
-- tool executions
-- subagent calls
-- peer-agent calls
-- skill installs
-- background service triggers
+- tool calls
+- subagent updates
+- context compaction
+- approvals
+- usage signals
+- outbound replies
 
-If something changes the system, operators should be able to answer:
+If something changes the system, an operator should be able to answer:
 
 - what happened?
 - when did it happen?
-- who triggered it?
-- which agent ran it?
-- which goal and task did it belong to?
-- what output or side effect did it produce?
+- which run did it belong to?
+- which session did it belong to?
+- which trace did it belong to?
+- which agent produced it?
 
 ## The Three Pillars
 
@@ -58,11 +60,15 @@ Tracing answers:
 
 - what execution path did this run follow?
 
-At the OS level, that means:
+At the current OS level, that means:
 
-- envelope -> runner -> harness turn -> tools -> results
+- envelope
+- runner
+- harness turn
+- tool and subagent activity
+- final outbound message
 
-Useful identifiers:
+The current identifiers remain:
 
 - `trace_id`
 - `run_id`
@@ -72,28 +78,7 @@ Useful identifiers:
 - `thread_key`
 - `target_agent`
 
-But tracing identifiers is not enough.
-
-The OS should also trace execution usage.
-
-That means at minimum:
-
-- input tokens
-- output tokens
-- total tokens
-- model/provider name
-- price basis for that provider
-- estimated cost in money
-
-And for production-minded monitoring, the minimum usage/cost model should distinguish:
-
-- input tokens
-- output tokens
-- total tokens
-- pricing key
-- estimated input cost
-- estimated output cost
-- estimated total cost
+But now we also persist a timeline of events under those identifiers.
 
 ### 2. Monitoring
 
@@ -101,17 +86,18 @@ Monitoring answers:
 
 - what is the current health and state of the system?
 
-Examples:
+That includes:
 
-- active runs
-- blocked runs
-- average turn latency
-- queue depth
-- token usage
-- cost usage
-- tool failure rate
-- agent availability
-- background job health
+- active and completed runs
+- tokens
+- cost
+- context pressure
+- agent and team totals
+- alerts
+
+This was already partially real in the operator dashboard.
+
+This chapter makes the monitoring layer deeper by giving each run a visible event trail.
 
 ### 3. Operator Controls
 
@@ -119,204 +105,212 @@ Operator controls answer:
 
 - what can a human do when the system is unhealthy or unsafe?
 
-Examples:
+We already have:
 
-- inspect a run
-- inspect recent events
-- cancel a run
-- pause a team
-- disable a channel
-- disable a remote agent
-- review install history
+- run inspection
+- run cancellation
 
-## User View vs Operator View
+This chapter improves inspection by making it timeline-backed instead of summary-only.
 
-This distinction is important.
+## What We Implement
 
-### User View
+The first concrete observability slice adds:
 
-The user should mostly see:
+- `OperatorEventRecord`
+- `OperatorEventStore`
+- append-only JSONL persistence
+- per-run event lookup
+- operator-service event inspection
+- timeline rendering in `inspect run`
 
-- one conversation
-- goal progress
-- team progress
-- deliverables
+The implementation lives in:
 
-### Operator View
+- [`event_log.py`](/Users/dzung/mini-claw-code/mini-claw-code-py/src/mini_claw_code_py/os/event_log.py)
+- [`runner.py`](/Users/dzung/mini-claw-code/mini-claw-code-py/src/mini_claw_code_py/os/runner.py)
+- [`operator.py`](/Users/dzung/mini-claw-code/mini-claw-code-py/src/mini_claw_code_py/os/operator.py)
+- [`ops/app.py`](/Users/dzung/mini-claw-code/mini-claw-code-py/src/mini_claw_code_py/ops/app.py)
 
-The operator should be able to see:
+## Why We Use JSONL
 
-- active goals
-- active tasks
-- active runs
-- agent ownership
-- trace ids
-- session ids
-- logs
-- failure state
-- cancel / pause controls
+The event log uses:
 
-Those are different surfaces.
+- one JSON object per line
 
-Do not confuse them.
+stored at:
 
-The clean operating model is:
+- `.mini-claw/os/operator_events.jsonl`
 
-- one work console for active conversation
-- one operator console for system inspection and control
+This is a good first production choice because it is:
 
-The next chapter will make that split explicit.
+- append-friendly
+- easy to inspect with normal shell tools
+- easy to parse in tests
+- closer to real log streams than a big rewritten JSON array
 
-## The Minimum Trace Model
+It also keeps the code simple.
 
-The first implementation should keep this small.
+## Operator Event Model
 
-A traceable run should include:
+Each event record stores:
 
+- `event_id`
+- `created_at`
+- `kind`
 - `trace_id`
 - `run_id`
-- `goal_id` optional
-- `task_id` optional
 - `session_id`
-- `thread_key`
 - `target_agent`
-- `source`
-- `status`
-- `started_at`
-- `finished_at`
+- `payload`
 
-And the first usage model should also include:
+That is intentionally boring and explicit.
 
-- `input_tokens`
-- `output_tokens`
-- `total_tokens`
-- `estimated_input_cost`
-- `estimated_output_cost`
-- `estimated_total_cost`
-- `pricing_key`
+This chapter does not try to build a complex tracing backend.
+
+It just ensures that useful execution breadcrumbs become durable OS state.
+
+## What Gets Recorded Now
+
+### OS-level run events
+
+The runner records:
+
+- `run_started`
+- `outbound_message`
+- `run_finished`
+
+These are persisted even if no operator console is open.
+
+### Harness-derived events
+
+The runner also maps selected harness events into operator events, including:
+
+- `agent.tool_call`
+- `agent.subagent`
+- `agent.context_compaction`
+- `agent.approval`
+- `agent.usage`
+- `agent.todos`
+- `agent.memory`
+- `agent.artifacts`
+
+Not every internal event needs to become a durable operator event.
 
 The important rule is:
 
-token and money calculation belong in the execution core, not in the monitoring UI.
+- persist what helps operators explain behavior
 
-The runner or usage core should compute them.
+## Runtime Path
 
-Monitoring should only display and aggregate them.
+The current path looks like this:
 
-That is enough to correlate most system behavior.
+```text
+MessageEnvelope
+  -> TurnRunner.run(...)
+  -> persist run_started
+  -> execute harness turn
+  -> relay structured harness events
+  -> persist mapped operator events
+  -> persist outbound_message
+  -> persist run_finished
+```
 
-## The Minimum Operator Surfaces
+That means the operator timeline is built from the same real runtime path that produces the work.
 
-The first operator-facing features should be:
+It is not a fake dashboard-only summary.
 
-- list active runs
-- list recent finished runs
-- inspect one run
-- inspect recent events for one run
-- cancel one active run
+## Inspecting a Run
 
-That already gives the OS a real operational backbone.
+The operator service now exposes:
 
-For the early local CLI path, the first concrete operator surfaces can start even smaller:
+- `inspect_run(run_id)`
+- `inspect_run_events(run_id)`
 
-- `/routes`
-- `/runs`
-- `/session`
-- `/sessions`
+And the operator console uses both when the user inspects a run.
 
-Those commands are enough to verify:
+So `make ops` can now show:
 
-- which front-door thread is bound to which session
-- which hosted agent handled recent turns
-- which trace id and session id belonged to each run
+- run metadata
+- token and cost usage
+- context pressure
+- a short timeline of what happened during that run
 
-The next meaningful operator metrics after that should be:
+This makes the detail view much closer to a real task-manager style inspection panel.
 
-- tokens per run
-- money per run
-- aggregate token and money totals per team and per agent
+## Why This Matters
 
-## Current Local Monitoring Path
+Without a timeline, operators can see:
 
-Today, the local monitoring path is simple and explicit:
+- a run existed
+- it finished or failed
+- it consumed some tokens
 
-- the runner persists run, route, session, and control state under `.mini-claw/`
-- the operator console reads and aggregates that same state
-- the operator dashboard refreshes on a timer
+But they still cannot see:
 
-So current `make ops` monitoring is:
+- whether it called tools
+- whether it delegated subagents
+- whether it compacted context
+- whether an approval gate triggered
+
+The event timeline closes that gap.
+
+## Current Monitoring Boundary
+
+The system is still in local-mode monitoring:
 
 - file-backed
-- same-machine
-- shared-project-root
+- same project root
+- timer-refreshed operator console
 
-This is good enough for the first operational slice because it is:
+That is okay for this stage.
 
-- easy to inspect
-- easy to test
-- easy to learn
+The key thing is that the traceability model is now explicit and durable.
 
-But it is still local mode.
+Later, the same event model can be pushed into:
 
-## Distributed Monitoring Direction
+- a central control plane
+- streaming operator APIs
+- multi-node aggregation
 
-For multi-machine Agent OS deployment, the operator path should evolve into:
+## Tokens and Money
 
-- node / runner pushes state and events to a central control plane
-- operator consoles connect to an operator API
-- web / desktop / CLI operator surfaces all read the same backend
+The design rule stays the same:
 
-That is the point where monitoring stops being "read local files" and becomes a real control plane.
+- token and money calculation belong in the execution core
+- monitoring only displays and aggregates them
 
-## Why This Must Be A First-Class Requirement
+That is why the runner still owns:
 
-Without tracing and monitoring, multi-agent systems become black boxes.
+- token totals
+- pricing key
+- estimated input cost
+- estimated output cost
+- estimated total cost
 
-You can see that something is wrong, but you cannot see:
+The operator layer reads those values and correlates them with run and event data.
 
-- which team is blocked
-- which agent is looping
-- which session triggered the issue
-- which remote skill install changed behavior
+## Testing Focus
 
-That is unacceptable for a real OS.
+The Chapter 46 tests protect:
 
-So observability is not a later nice-to-have.
+1. append-only event persistence
+2. filtering events by run id
+3. runner integration
+4. operator-service event lookup
+5. run detail rendering through the operator console
 
-It is part of the base design.
+Tests live in:
 
-## Recommended Architecture
+- [`test_ch46.py`](/Users/dzung/mini-claw-code/mini-claw-code-py/tests/test_ch46.py)
+- [`test_ch47.py`](/Users/dzung/mini-claw-code/mini-claw-code-py/tests/test_ch47.py)
 
-The first observability layer should likely include:
+## Result
 
-- `TraceRecord`
-- `RunStatus`
-- `RunRegistry`
-- `OperatorEvent`
-- `OperatorConsole` or later dashboard views
+After this chapter, the Agent OS has a real traceability backbone:
 
-And the OS should propagate trace metadata through:
+- durable run metadata
+- durable operator event timeline
+- per-run inspection
+- token and cost visibility
+- safer operator debugging
 
-- envelopes
-- runner
-- session routing
-- harness events
-- background services
-
-## Later Direction
-
-Later, this can grow into:
-
-- OpenTelemetry export
-- distributed traces across ACP
-- replay tools
-- anomaly detection
-- alerting
-
-But the first local version should stay simple:
-
-- explicit ids
-- explicit run records
-- explicit operator controls
-
-That is enough to keep the system understandable while we build it.
+That is the minimum shape of a real observable Agent OS.

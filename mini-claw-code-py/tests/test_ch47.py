@@ -114,6 +114,7 @@ async def test_ch47_operator_app_renders_dashboard_and_inspects_run(
         assert detail.display is True
         assert result.context.run.run_id in str(detail.content)
         assert "estimated_total_cost" in str(detail.content)
+        assert "Timeline" in str(detail.content)
 
 
 @pytest.mark.asyncio

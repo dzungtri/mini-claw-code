@@ -210,7 +210,7 @@ class OperatorApp(App[None]):
         if run is None:
             self._show_detail(f"Run not found: {run_id}")
             return
-        self._show_detail(_render_run_detail(run))
+        self._show_detail(_render_run_detail(run, self.service.inspect_run_events(run_id)))
 
     def inspect_session(self, session_id: str) -> None:
         session = self.service.inspect_session(session_id)
@@ -386,7 +386,7 @@ def _render_alerts(snapshot: OperatorSnapshot) -> str:
     return "\n".join(lines)
 
 
-def _render_run_detail(run: RunRecord) -> str:
+def _render_run_detail(run: RunRecord, events: list[object] | None = None) -> str:
     lines = [
         f"Inspect Run: {run.run_id}",
         "",
@@ -419,6 +419,13 @@ def _render_run_detail(run: RunRecord) -> str:
         lines.append(f"pricing_key={run.pricing_key}")
     if run.provider_name or run.model_name:
         lines.append(f"provider={run.provider_name} model={run.model_name}")
+    if events:
+        lines.extend(["", "Timeline"])
+        for event in events:
+            lines.append(f"- {event.created_at} {event.kind}")
+            message = event.payload.get("message") if isinstance(event.payload, dict) else None
+            if isinstance(message, str) and message.strip():
+                lines.append(f"  message={message.strip()}")
     return "\n".join(lines)
 
 

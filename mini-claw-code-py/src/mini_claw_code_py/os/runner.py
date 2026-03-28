@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,7 @@ from .agent_registry import HostedAgentFactory, HostedAgentRegistry
 from .bus import MessageBus
 from .control import RunControlStore
 from .envelopes import EventEnvelope, MessageEnvelope
+from .event_log import OperatorEventStore
 from .session_router import SessionRoute, SessionRouter
 from .work import (
     GoalStore,
@@ -59,6 +61,7 @@ class TurnRunner:
         session_work: SessionWorkStore | None = None,
         controls: RunControlStore | None = None,
         bus: MessageBus | None = None,
+        event_log: OperatorEventStore | None = None,
     ) -> None:
         self.registry = registry
         self.factory = factory
@@ -71,6 +74,7 @@ class TurnRunner:
         self.session_work = session_work
         self.controls = controls or RunControlStore(runs.root)
         self.bus = bus
+        self.event_log = event_log or OperatorEventStore(runs.root)
 
     async def run(
         self,
@@ -123,13 +127,29 @@ class TurnRunner:
                     "target_agent": definition.name,
                     "thread_key": envelope.thread_key,
                 },
-            )
+            ),
+            run_id=run.run_id,
+            session_id=session.id,
+            target_agent=definition.name,
         )
 
         queue = event_queue if event_queue is not None else asyncio.Queue()
         internal_queue: asyncio.Queue[object] = asyncio.Queue()
         observer = _RunObserver()
-        relay = asyncio.create_task(_relay_events(internal_queue, queue, observer))
+        relay = asyncio.create_task(
+            _relay_events(
+                internal_queue,
+                queue,
+                observer,
+                record_event=lambda event: self.event_log.append_agent_event(
+                    event,
+                    trace_id=envelope.trace_id,
+                    run_id=run.run_id,
+                    session_id=session.id,
+                    target_agent=definition.name,
+                ),
+            )
+        )
         try:
             reply_text = await agent.execute(
                 history,
@@ -191,7 +211,10 @@ class TurnRunner:
                         "target_agent": definition.name,
                         "status": "failed",
                     },
-                )
+                ),
+                run_id=run.run_id,
+                session_id=session.id,
+                target_agent=definition.name,
             )
             raise
 
@@ -221,7 +244,10 @@ class TurnRunner:
                     "status": run.status,
                     "outbound_message_id": outbound.message_id,
                 },
-            )
+            ),
+            run_id=run.run_id,
+            session_id=session.id,
+            target_agent=definition.name,
         )
 
         return RunnerResult(
@@ -238,6 +264,22 @@ class TurnRunner:
         )
 
     async def _publish_outbound(self, envelope: MessageEnvelope) -> None:
+        self.event_log.append_envelope(
+            EventEnvelope(
+                kind="outbound_message",
+                trace_id=envelope.trace_id,
+                payload={
+                    "message_id": envelope.message_id,
+                    "parent_run_id": envelope.parent_run_id,
+                    "target_agent": envelope.target_agent,
+                    "session_id": str(envelope.metadata.get("session_id", "")),
+                    "run_id": str(envelope.parent_run_id or ""),
+                },
+            ),
+            run_id=str(envelope.parent_run_id or ""),
+            session_id=str(envelope.metadata.get("session_id", "")),
+            target_agent=str(envelope.metadata.get("target_agent", "")),
+        )
         if self.bus is not None:
             await self.bus.publish_outbound(envelope)
             await self.bus.publish_event(
@@ -252,7 +294,20 @@ class TurnRunner:
                 )
             )
 
-    async def _publish_event(self, envelope: EventEnvelope) -> None:
+    async def _publish_event(
+        self,
+        envelope: EventEnvelope,
+        *,
+        run_id: str = "",
+        session_id: str = "",
+        target_agent: str = "",
+    ) -> None:
+        self.event_log.append_envelope(
+            envelope,
+            run_id=run_id,
+            session_id=session_id,
+            target_agent=target_agent,
+        )
         if self.bus is not None:
             await self.bus.publish_event(envelope)
 
@@ -333,10 +388,13 @@ async def _relay_events(
     source: "asyncio.Queue[object]",
     target: "asyncio.Queue[object]",
     observer: _RunObserver,
+    record_event: Callable[[object], object | None] | None = None,
 ) -> None:
     while True:
         event = await source.get()
         observer.observe(event)
+        if record_event is not None:
+            record_event(event)
         await target.put(event)
         if isinstance(event, AgentDone | AgentError):
             return

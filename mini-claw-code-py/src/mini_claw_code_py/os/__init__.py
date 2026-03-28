@@ -33,6 +33,7 @@ from .envelopes import (
     create_trace_id,
     utc_now_iso,
 )
+from .event_log import OPERATOR_EVENT_LOG_FILE_NAME, OperatorEventRecord, OperatorEventStore
 from .gateway import GatewayService, GatewaySession, GatewaySessionStore, GatewayTurnResult
 from .operator import (
     AgentStatusView,
@@ -84,6 +85,9 @@ __all__ = [
     "ChannelDefinition",
     "ChannelRegistry",
     "EventEnvelope",
+    "OPERATOR_EVENT_LOG_FILE_NAME",
+    "OperatorEventRecord",
+    "OperatorEventStore",
     "GatewayService",
     "GatewaySession",
     "GatewaySessionStore",

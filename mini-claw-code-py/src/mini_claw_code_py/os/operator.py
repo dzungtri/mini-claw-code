@@ -6,6 +6,7 @@ from pathlib import Path
 from ..session import SessionRecord, SessionStore
 from .agent_registry import HostedAgentRegistry
 from .control import RunControlStore
+from .event_log import OperatorEventRecord, OperatorEventStore
 from .session_router import RouteStore, SessionRoute
 from .work import GoalStore, RunRecord, RunStore, TaskStore, TeamRegistry
 
@@ -61,6 +62,7 @@ class OperatorService:
         tasks: TaskStore | None = None,
         runs: RunStore,
         controls: RunControlStore | None = None,
+        events: OperatorEventStore | None = None,
     ) -> None:
         self.registry = registry
         self.teams = teams
@@ -70,6 +72,7 @@ class OperatorService:
         self.tasks = tasks
         self.runs = runs
         self.controls = controls or RunControlStore(runs.root)
+        self.events = events or OperatorEventStore(runs.root)
 
     @classmethod
     def discover_default(cls, *, cwd: Path | None = None, home: Path | None = None) -> "OperatorService":
@@ -86,6 +89,7 @@ class OperatorService:
             tasks=TaskStore(os_root),
             runs=RunStore(os_root),
             controls=RunControlStore(os_root),
+            events=OperatorEventStore(os_root),
         )
 
     def snapshot(self, *, run_limit: int = 20, session_limit: int = 20) -> OperatorSnapshot:
@@ -111,6 +115,9 @@ class OperatorService:
 
     def inspect_run(self, run_id: str) -> RunRecord | None:
         return self.runs.get(run_id)
+
+    def inspect_run_events(self, run_id: str, *, limit: int = 20) -> list[OperatorEventRecord]:
+        return self.events.list(run_id=run_id, limit=limit)
 
     def inspect_session(self, session_id: str) -> SessionRecord | None:
         try:
