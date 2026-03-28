@@ -171,17 +171,18 @@ def apply_harness_config(
             keep_recent=config.context.keep_recent,
             max_estimated_tokens=config.context.max_estimated_tokens,
         )
-    if config.enable_subagents and supports_chat:
-        agent.enable_subagents(
-            max_parallel_subagents=config.subagent_max_parallel,
-            max_turns=config.subagent_max_turns,
-        )
     if config.enable_mcp:
         agent.enable_default_mcp(cwd=config.cwd, home=config.home)
     if config.enable_tool_universe:
         agent.enable_tool_universe_management()
     if config.enable_skills:
         agent.enable_default_skills(config.cwd)
+    if config.enable_subagents and supports_chat:
+        agent.enable_default_subagent_profiles(cwd=config.cwd, home=config.home)
+        agent.enable_subagents(
+            max_parallel_subagents=config.subagent_max_parallel,
+            max_turns=config.subagent_max_turns,
+        )
     if config.enable_control_plane:
         agent.enable_control_plane(
             profile=config.control_plane_profile,

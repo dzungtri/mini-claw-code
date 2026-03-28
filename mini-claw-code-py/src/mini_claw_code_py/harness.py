@@ -63,7 +63,13 @@ from .mcp import MCPCatalog, MCPRegistry, MCPToolAdapter
 from .prompts import DEFAULT_PLAN_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT_TEMPLATE, render_system_prompt
 from .skills import SkillRegistry
 from .streaming import StreamDone, StreamProvider, TextDelta
-from .subagent import SubagentTool, render_harness_subagent_prompt_section
+from .subagent import (
+    DEFAULT_SUBAGENT_SYSTEM_PROMPT,
+    SubagentRuntimeConfig,
+    SubagentTool,
+    render_harness_subagent_prompt_section,
+)
+from .subagent_profiles import SubagentProfile, SubagentProfileRegistry
 from .session import BLOB_REFERENCE_OPEN
 from .tool_universe import (
     DeferredToolRegistry,
@@ -134,6 +140,7 @@ class HarnessAgent:
         self._subagent_prompt_enabled = False
         self._subagent_provider: Provider | None = None
         self._subagent_tool_names: tuple[str, ...] = ()
+        self._subagent_profiles = SubagentProfileRegistry()
         self._subagent_max_turns = 8
         self._max_parallel_subagents = 2
         self._context_durability_enabled = False
@@ -225,6 +232,9 @@ class HarnessAgent:
             lines.append("")
             lines.append("Live MCP catalog: not connected in this session yet.")
         return "\n".join(lines)
+
+    def subagent_profile_registry(self) -> SubagentProfileRegistry:
+        return self._subagent_profiles
 
     def workspace(
         self,
@@ -377,6 +387,7 @@ class HarnessAgent:
         tool = SubagentTool(
             chat_provider,
             self._subagent_tools_factory,
+            runtime_config_factory=self._subagent_runtime_config,
         ).max_turns(max_turns)
         if system_prompt is not None:
             tool.system_prompt(system_prompt)
@@ -389,7 +400,29 @@ class HarnessAgent:
                 self.execution_system_prompt,
                 section,
             )
+            profile_section = self._subagent_profiles.prompt_section()
+            if profile_section:
+                self.execution_system_prompt = _append_prompt_section(
+                    self.execution_system_prompt,
+                    profile_section,
+                )
             self._subagent_prompt_enabled = True
+        return self
+
+    def enable_default_subagent_profiles(
+        self,
+        *,
+        cwd: Path | None = None,
+        home: Path | None = None,
+    ) -> "HarnessAgent":
+        self._subagent_profiles = SubagentProfileRegistry.discover_default(cwd=cwd, home=home)
+        if self._subagent_prompt_enabled:
+            profile_section = self._subagent_profiles.prompt_section()
+            if profile_section:
+                self.execution_system_prompt = _append_prompt_section(
+                    self.execution_system_prompt,
+                    profile_section,
+                )
         return self
 
     def enable_default_mcp(
@@ -656,12 +689,15 @@ class HarnessAgent:
                 await events.put(AgentNotice(workspace_summary))
 
             if self._subagent_enabled:
+                profiles = ", ".join(profile.name for profile in self._subagent_profiles.all())
+                profile_suffix = f", profiles=[{profiles}]" if profiles else ""
                 await events.put(
                     AgentNotice(
                         "Subagent capability available: "
                         f"tools={list(self._subagent_tool_names)}, "
                         f"max_parallel={self._max_parallel_subagents}, "
                         f"max_turns={self._subagent_max_turns}"
+                        f"{profile_suffix}"
                     )
                 )
 
@@ -1065,13 +1101,81 @@ class HarnessAgent:
         return [name for name in candidates if self.tools.get(name) is not None]
 
     def _subagent_tools_factory(self) -> ToolSet:
+        return self._toolset_for_names(self._subagent_tool_names)
+
+    def _toolset_for_names(self, names: tuple[str, ...] | list[str]) -> ToolSet:
         tools = ToolSet()
-        for name in self._subagent_tool_names:
+        for name in names:
             tool = self.tools.get(name)
             if tool is None or name == "subagent":
                 continue
             tools.push(tool)
         return tools
+
+    def _subagent_runtime_config(self, subagent_type: str | None) -> SubagentRuntimeConfig:
+        if subagent_type is None or not subagent_type.strip():
+            return SubagentRuntimeConfig(
+                tools=self._subagent_tools_factory(),
+                system_prompt=self._compose_subagent_system_prompt(None),
+                max_turns=self._subagent_max_turns,
+            )
+
+        profile = self._subagent_profiles.get(subagent_type.strip())
+        if profile is None:
+            raise ValueError(f"unknown configured subagent type `{subagent_type}`")
+
+        self._validate_subagent_profile(profile)
+        tool_names = profile.tools or self._subagent_tool_names
+        max_turns = profile.max_turns or self._subagent_max_turns
+        return SubagentRuntimeConfig(
+            tools=self._toolset_for_names(list(tool_names)),
+            system_prompt=self._compose_subagent_system_prompt(profile),
+            max_turns=max_turns,
+            profile_name=profile.name,
+        )
+
+    def _compose_subagent_system_prompt(self, profile: SubagentProfile | None) -> str:
+        sections: list[str] = [DEFAULT_SUBAGENT_SYSTEM_PROMPT.strip()]
+        if profile is not None:
+            sections.append(
+                "\n".join(
+                    [
+                        "<subagent_profile>",
+                        f"Type: {profile.name}",
+                        f"Role: {profile.description}",
+                        "</subagent_profile>",
+                    ]
+                )
+            )
+            if profile.system_prompt:
+                sections.append(profile.system_prompt.strip())
+            if profile.skills and self._skill_registry is not None:
+                section = self._skill_registry.prompt_section_for_names(profile.skills)
+                if section:
+                    sections.append(section)
+        return "\n\n".join(section for section in sections if section)
+
+    def _validate_subagent_profile(self, profile: SubagentProfile) -> None:
+        for tool_name in profile.tools:
+            if tool_name == "subagent":
+                raise ValueError(
+                    f"configured subagent `{profile.name}` cannot include the `subagent` tool"
+                )
+            if self.tools.get(tool_name) is None:
+                raise ValueError(
+                    f"configured subagent `{profile.name}` references unknown tool `{tool_name}`"
+                )
+        if not profile.skills:
+            return
+        if self._skill_registry is None:
+            raise ValueError(
+                f"configured subagent `{profile.name}` requires skills, but no skill registry is active"
+            )
+        for skill_name in profile.skills:
+            if self._skill_registry.get(skill_name) is None:
+                raise ValueError(
+                    f"configured subagent `{profile.name}` references unknown skill `{skill_name}`"
+                )
 
     @staticmethod
     async def _run_subagent_call(tool: object, args: object) -> str:

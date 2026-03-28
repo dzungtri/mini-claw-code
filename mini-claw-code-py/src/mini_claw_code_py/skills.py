@@ -117,7 +117,10 @@ class SkillRegistry:
         return self._skills.get(name)
 
     def prompt_section(self) -> str:
-        skills = self.all()
+        return self.prompt_section_for_names(skill.name for skill in self.all())
+
+    def prompt_section_for_names(self, names: Iterable[str]) -> str:
+        skills = [skill for name in names if (skill := self.get(name)) is not None]
         if not skills:
             return ""
 

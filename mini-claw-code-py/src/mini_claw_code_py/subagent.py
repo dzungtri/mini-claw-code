@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from .types import Message, Provider, StopReason, ToolDefinition, ToolSet
@@ -78,12 +79,27 @@ Guidelines:
 """
 
 
+@dataclass(slots=True)
+class SubagentRuntimeConfig:
+    tools: ToolSet
+    system_prompt: str | None
+    max_turns: int
+    profile_name: str = "general-purpose"
+
+
 class SubagentTool:
-    def __init__(self, provider: Provider, tools_factory: Callable[[], ToolSet]) -> None:
+    def __init__(
+        self,
+        provider: Provider,
+        tools_factory: Callable[[], ToolSet],
+        *,
+        runtime_config_factory: Callable[[str | None], SubagentRuntimeConfig] | None = None,
+    ) -> None:
         self.provider = provider
         self.tools_factory = tools_factory
         self._system_prompt: str | None = DEFAULT_SUBAGENT_SYSTEM_PROMPT
         self.max_turns_value = 10
+        self._runtime_config_factory = runtime_config_factory
         self._definition = ToolDefinition.new(
             "subagent",
             "Delegate a focused multi-step subtask to a child agent with its own message history and tools.",
@@ -92,6 +108,11 @@ class SubagentTool:
             "string",
             "A clear delegated task for the child agent, including the goal, useful context, and expected output.",
             True,
+        ).param(
+            "subagent_type",
+            "string",
+            "Optional configured subagent type. Omit to use the general-purpose child.",
+            False,
         )
 
     @property
@@ -110,31 +131,42 @@ class SubagentTool:
 
     async def call(self, args: Any) -> str:
         task = args.get("task") if isinstance(args, dict) else None
+        subagent_type = args.get("subagent_type") if isinstance(args, dict) else None
         if not isinstance(task, str):
             raise ValueError("missing required parameter: task")
+        if subagent_type is not None and not isinstance(subagent_type, str):
+            raise ValueError("subagent_type must be a string")
 
-        tools = self.tools_factory()
-        defs = tools.definitions()
+        runtime = self._resolve_runtime(subagent_type)
+        defs = runtime.tools.definitions()
+        messages = self._initial_messages(task, runtime.system_prompt)
 
-        messages = self._initial_messages(task)
-
-        for _ in range(self.max_turns_value):
+        for _ in range(runtime.max_turns):
             turn = await self.provider.chat(messages, defs)
 
             if turn.stop_reason is StopReason.STOP:
                 return turn.text or ""
 
-            results = await self._execute_child_tools(tools, turn.tool_calls)
+            results = await self._execute_child_tools(runtime.tools, turn.tool_calls)
             self._push_results(messages, turn, results)
 
         return "error: max turns exceeded"
 
-    def _initial_messages(self, task: str) -> list[Message]:
+    def _initial_messages(self, task: str, system_prompt: str | None) -> list[Message]:
         messages: list[Message] = []
-        if self._system_prompt is not None:
-            messages.append(Message.system(self._system_prompt))
+        if system_prompt is not None:
+            messages.append(Message.system(system_prompt))
         messages.append(Message.user(task))
         return messages
+
+    def _resolve_runtime(self, subagent_type: str | None) -> SubagentRuntimeConfig:
+        if self._runtime_config_factory is not None:
+            return self._runtime_config_factory(subagent_type)
+        return SubagentRuntimeConfig(
+            tools=self.tools_factory(),
+            system_prompt=self._system_prompt,
+            max_turns=self.max_turns_value,
+        )
 
     async def _execute_child_tools(
         self,
