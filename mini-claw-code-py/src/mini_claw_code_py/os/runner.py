@@ -256,6 +256,15 @@ class TurnRunner:
         if self.bus is not None:
             await self.bus.publish_event(envelope)
 
+    async def run_from_bus(
+        self,
+        event_queue: "asyncio.Queue[object] | None" = None,
+    ) -> RunnerResult:
+        if self.bus is None:
+            raise ValueError("run_from_bus requires a MessageBus")
+        envelope = await self.bus.consume_inbound()
+        return await self.run(envelope, event_queue)
+
     def _resolve_or_create_session_task(
         self,
         *,

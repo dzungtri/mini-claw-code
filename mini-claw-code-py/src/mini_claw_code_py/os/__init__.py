@@ -16,6 +16,7 @@ from .envelopes import (
     create_trace_id,
     utc_now_iso,
 )
+from .gateway import GatewayService, GatewaySession, GatewaySessionStore, GatewayTurnResult
 from .operator import (
     AgentStatusView,
     OperatorService,
@@ -51,6 +52,10 @@ from .work import (
 __all__ = [
     "AGENT_REGISTRY_FILE_NAME",
     "EventEnvelope",
+    "GatewayService",
+    "GatewaySession",
+    "GatewaySessionStore",
+    "GatewayTurnResult",
     "HostedAgentDefinition",
     "HostedAgentFactory",
     "HostedAgentRegistry",

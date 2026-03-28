@@ -25,7 +25,7 @@ That makes it a strong fit for:
 
 ## Requirements
 
-The first ACP gateway should:
+The first real gateway slice should:
 
 - create sessions
 - select a target agent
@@ -36,11 +36,17 @@ The first ACP gateway should:
   - model
 - preserve session and trace identity across the protocol boundary
 
-For the first version, ACP should target one hosted agent per session.
+For the first implementation, we can keep one deliberate scope limit:
+
+- build an in-process gateway service first
+- keep ACP as the next protocol transport over that same service
+
+For the first version, the gateway should target one hosted agent per session.
 
 That keeps the mapping clean:
 
 - ACP session -> target agent -> session router -> harness session
+- gateway session -> target agent -> session router -> harness session
 
 It does **not** need:
 
@@ -68,6 +74,28 @@ This is the same pattern we saw in the reference systems:
 - Mimiclaw uses a gateway and a local bus as different layers
 
 That is the architecture we should keep.
+
+## First Concrete Slice
+
+The first implemented gateway path should look like:
+
+```text
+gateway session
+  -> MessageEnvelope
+  -> MessageBus inbound queue
+  -> TurnRunner.run_from_bus()
+  -> HarnessAgent
+  -> outbound envelope + run record + session update
+```
+
+This gives us two real execution paths to test:
+
+- direct local path
+  - `make cli -> TurnRunner.run(envelope)`
+- gateway-mediated path
+  - `GatewayService -> bus -> TurnRunner.run_from_bus()`
+
+That is enough to validate the network backbone before we add a remote transport.
 
 ## Authentication And Trust
 
@@ -103,13 +131,24 @@ That matches the DeepAgents ACP examples well:
 
 So session config belongs at the gateway boundary, not hidden inside the TUI.
 
+For the first implementation, `mode` and `model` may be stored as gateway session config before they fully influence the runtime builder.
+
+That is still valuable because it establishes:
+
+- the session config boundary
+- the persistence model
+- the future transport contract
+
 ## Architecture
 
 The first shape should include:
 
-- `ACPGateway`
-- `ACPClientSession`
-- `ACPConfigOptions`
+- `GatewaySession`
+- `GatewaySessionStore`
+- `GatewayService`
+- later `ACPGateway`
+- later `ACPClientSession`
+- later richer `ACPConfigOptions`
 
 The important design rule is:
 
