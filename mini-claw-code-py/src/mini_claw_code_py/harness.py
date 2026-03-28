@@ -23,8 +23,11 @@ from .control_plane import (
     control_plane_profile,
     is_mutating_tool,
     is_verification_tool,
+    mutation_targets_for_tool,
     render_control_plane_prompt_section,
     tool_call_signature,
+    verification_clears_mutations,
+    verification_targets_for_tool,
 )
 from .context import (
     ARCHIVED_CONTEXT_OPEN,
@@ -1124,7 +1127,6 @@ class HarnessAgent:
         return False
 
     def _record_control_plane_success(self, name: str, args: object) -> None:
-        signature = tool_call_signature(name, args)
         self._audit_log.push("tool", f"{name}: {_tool_detail(args)}")
         if is_verification_tool(name, args):
             self._audit_log.push("verify", f"Verification step observed via {name}")
@@ -1142,16 +1144,37 @@ class HarnessAgent:
 
     @staticmethod
     def _mutation_since_last_verification(messages: list[Message]) -> bool:
-        mutated = False
+        pending_mutations: set[str] = set()
         for message in messages:
             if message.kind != "assistant" or message.turn is None:
                 continue
             for call in message.turn.tool_calls:
                 if is_mutating_tool(call.name, call.arguments):
-                    mutated = True
-                elif mutated and is_verification_tool(call.name, call.arguments):
-                    mutated = False
-        return mutated
+                    targets = mutation_targets_for_tool(call.name, call.arguments)
+                    pending_mutations.update(targets or {"<mutation>"})
+                elif is_verification_tool(call.name, call.arguments):
+                    verification_targets = verification_targets_for_tool(call.name, call.arguments)
+                    if verification_clears_mutations(
+                        pending_mutations=pending_mutations,
+                        verification_targets=verification_targets,
+                    ):
+                        if "<shell>" in verification_targets:
+                            pending_mutations.discard("<shell>")
+                        if "<outputs>" in verification_targets:
+                            pending_mutations = {
+                                target
+                                for target in pending_mutations
+                                if not (
+                                    target == "<shell>"
+                                    or target.startswith("outputs://")
+                                    or "/outputs/" in target
+                                    or target.endswith("/outputs")
+                                    or target == "outputs"
+                                )
+                            }
+                        pending_mutations.difference_update(verification_targets)
+                        pending_mutations.discard("<mutation>")
+        return bool(pending_mutations)
 
 
 def render_harness_prompt_section() -> str:

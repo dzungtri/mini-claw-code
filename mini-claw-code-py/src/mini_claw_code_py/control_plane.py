@@ -24,7 +24,7 @@ Clarification-first policy:
 
 Verification-before-exit policy:
 - After non-trivial writes or edits, verify the result before your final answer.
-- Good verification includes reading the changed file, listing outputs, or running tests/checks.
+- Good verification includes reading the changed file, listing changed outputs, or running tests/checks that match the work you changed.
 </control_plane>"""
 
 
@@ -139,7 +139,7 @@ def classify_loop(
     signature: str,
     settings: ControlPlaneSettings,
 ) -> str | None:
-    count = history.count(signature)
+    count = _consecutive_repetition_count(history, signature)
     if count >= settings.block_repeated_tool_calls:
         return "block"
     if count >= settings.warn_repeated_tool_calls:
@@ -160,6 +160,11 @@ def approval_message_for_tool(
         if isinstance(path, str) and Path(path).exists():
             return f"Overwrite existing file `{path}`?"
 
+    if name == "edit" and settings.require_overwrite_approval:
+        path = args.get("path")
+        if isinstance(path, str) and Path(path).exists():
+            return f"Edit existing file `{path}`?"
+
     if name == "bash" and settings.require_risky_bash_approval:
         command = args.get("command")
         if isinstance(command, str) and RISKY_BASH_RE.search(command):
@@ -169,7 +174,7 @@ def approval_message_for_tool(
 
 
 def is_mutating_tool(name: str, args: object) -> bool:
-    if name in {"write", "edit", "subagent"}:
+    if name in {"write", "edit"}:
         return True
     if name != "bash" or not isinstance(args, dict):
         return False
@@ -188,3 +193,73 @@ def is_verification_tool(name: str, args: object) -> bool:
     if "list_directory" in name or "read" in name or "grep" in name or "glob" in name:
         return True
     return False
+
+
+def mutation_targets_for_tool(name: str, args: object) -> set[str]:
+    if not isinstance(args, dict):
+        return set()
+    if name in {"write", "edit"}:
+        path = args.get("path")
+        if isinstance(path, str) and path.strip():
+            return {path.strip()}
+        return set()
+    if name == "bash":
+        command = args.get("command")
+        if isinstance(command, str) and command.strip():
+            return {"<shell>"}
+    return set()
+
+
+def verification_targets_for_tool(name: str, args: object) -> set[str]:
+    if not isinstance(args, dict):
+        return set()
+    if name == "read":
+        path = args.get("path")
+        if isinstance(path, str) and path.strip():
+            return {path.strip()}
+        return set()
+    if "list_directory" in name:
+        path = args.get("path")
+        if isinstance(path, str) and path.strip():
+            return {path.strip()}
+        return {"<outputs>"}
+    if "glob" in name or "grep" in name:
+        path = args.get("path")
+        if isinstance(path, str) and path.strip():
+            return {path.strip()}
+        return {"<outputs>"}
+    if name == "bash":
+        command = args.get("command")
+        if isinstance(command, str) and VERIFY_BASH_RE.search(command):
+            return {"<shell>", "<outputs>"}
+    return set()
+
+
+def verification_clears_mutations(
+    *,
+    pending_mutations: set[str],
+    verification_targets: set[str],
+) -> bool:
+    if not pending_mutations or not verification_targets:
+        return False
+    if "<shell>" in pending_mutations and "<shell>" in verification_targets:
+        return True
+    if "<outputs>" in verification_targets:
+        return any(
+            target == "<shell>"
+            or target.startswith("outputs://")
+            or "/outputs/" in target
+            or target.endswith("/outputs")
+            or target == "outputs"
+            for target in pending_mutations
+        )
+    return any(target in verification_targets for target in pending_mutations)
+
+
+def _consecutive_repetition_count(history: list[str], signature: str) -> int:
+    count = 0
+    for item in reversed(history):
+        if item != signature:
+            break
+        count += 1
+    return count
