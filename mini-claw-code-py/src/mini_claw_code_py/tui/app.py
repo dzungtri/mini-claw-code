@@ -9,13 +9,20 @@ from mini_claw_code_py import (
     HostedAgentRegistry,
     Message,
     OpenRouterProvider,
+    SessionRoute,
     SessionRecord,
     SessionStore,
+    SessionRouter,
     TeamRegistry,
     UserInputRequest,
+    default_route_store,
 )
 
 from .console import ConsoleUI
+
+
+CLI_TARGET_AGENT = "superagent"
+CLI_THREAD_KEY = "cli:local"
 
 
 def build_agent(
@@ -38,14 +45,21 @@ async def run_cli(*, cwd: Path | None = None) -> None:
     workspace = (cwd or Path.cwd()).resolve()
     input_queue: asyncio.Queue[UserInputRequest] = asyncio.Queue()
     store = SessionStore(workspace / ".mini-claw" / "sessions")
+    router = SessionRouter(default_route_store(workspace), store)
     ui = ConsoleUI()
 
     agent = build_agent(provider, cwd=workspace, input_queue=input_queue)
-    current_session = store.create(cwd=workspace)
-    history: list[Message] = []
+    current_route, current_session = router.resolve_or_create(
+        target_agent=CLI_TARGET_AGENT,
+        thread_key=CLI_THREAD_KEY,
+        cwd=workspace,
+    )
+    history = store.restore_into_agent(agent, current_session)
     plan_mode = False
 
     ui.print_banner(cwd=str(workspace), session_id=current_session.id)
+    if history:
+        ui.print_history_preview(history)
 
     while True:
         ui.drain_notice_queue(agent.notice_queue())
@@ -59,13 +73,15 @@ async def run_cli(*, cwd: Path | None = None) -> None:
             continue
 
         if prompt.startswith("/"):
-            handled, agent, current_session, history, plan_mode = await _handle_command(
+            handled, agent, current_route, current_session, history, plan_mode = await _handle_command(
                 prompt=prompt,
                 provider=provider,
                 workspace=workspace,
                 input_queue=input_queue,
                 store=store,
+                router=router,
                 agent=agent,
+                current_route=current_route,
                 current_session=current_session,
                 history=history,
                 plan_mode=plan_mode,
@@ -107,56 +123,60 @@ async def _handle_command(
     workspace: Path,
     input_queue: "asyncio.Queue[UserInputRequest]",
     store: SessionStore,
+    router: SessionRouter,
     agent: HarnessAgent,
+    current_route: SessionRoute,
     current_session: SessionRecord,
     history: list[Message],
     plan_mode: bool,
     ui: ConsoleUI,
-) -> tuple[bool, HarnessAgent, SessionRecord, list[Message], bool]:
+) -> tuple[bool, HarnessAgent, SessionRoute, SessionRecord, list[Message], bool]:
     if prompt in {"/quit", "/exit"}:
         await _shutdown(agent, ui)
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/help":
         ui.print_help()
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/plan":
         plan_mode = not plan_mode
         ui.print_mode_change(plan_mode=plan_mode)
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt in {"/status", "/todos"}:
         ui.print_runtime_status(agent, plan_mode=plan_mode)
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/artifacts":
         ui.print_artifacts(agent)
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/mcp":
         ui.print_mcp(agent)
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/subagents":
         ui.print_subagents(agent)
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/agents":
         ui.print_agents(HostedAgentRegistry.discover_default(cwd=workspace, home=Path.home()), current_agent="superagent")
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/teams":
         ui.print_teams(TeamRegistry.discover_default(cwd=workspace, home=Path.home()))
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/session":
-        ui.print_session_status(current_session)
-        return True, agent, current_session, history, plan_mode
+        ui.print_session_status(current_session, route=current_route)
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/sessions":
         records = ui.print_session_list(store)
         if not records:
-            return True, agent, current_session, history, plan_mode
+            return True, agent, current_route, current_session, history, plan_mode
         session_id = ui.read_session_selection(records)
         if session_id is None:
-            return True, agent, current_session, history, plan_mode
+            return True, agent, current_route, current_session, history, plan_mode
         return await _resume_session(
             session_id=session_id,
             provider=provider,
             input_queue=input_queue,
             store=store,
+            router=router,
             agent=agent,
+            current_route=current_route,
             current_session=current_session,
             history=history,
             plan_mode=plan_mode,
@@ -166,14 +186,14 @@ async def _handle_command(
         parts = prompt.split(maxsplit=1)
         if len(parts) != 2:
             ui.print_usage("/rename <title>")
-            return True, agent, current_session, history, plan_mode
+            return True, agent, current_route, current_session, history, plan_mode
         try:
             current_session = store.rename(current_session, parts[1])
         except ValueError as exc:
             ui.print_usage(str(exc))
-            return True, agent, current_session, history, plan_mode
+            return True, agent, current_route, current_session, history, plan_mode
         ui.print_renamed_session(current_session)
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt.startswith("/fork"):
         current_session = _save_session(store, current_session, history, agent)
         source_session = current_session
@@ -185,32 +205,44 @@ async def _handle_command(
             )
         except ValueError as exc:
             ui.print_usage(str(exc))
-            return True, agent, current_session, history, plan_mode
+            return True, agent, current_route, current_session, history, plan_mode
+        current_route = router.bind(
+            target_agent=current_route.target_agent,
+            thread_key=current_route.thread_key,
+            session_id=current_session.id,
+        )
         ui.print_forked_session(source_session, current_session)
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/audit":
         ui.print_audit_log(agent)
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/new":
         await agent.flush_memory_updates()
         ui.drain_notice_queue(agent.notice_queue())
         agent = build_agent(provider, cwd=workspace, input_queue=input_queue)
         history = []
         current_session = store.create(cwd=workspace)
+        current_route = router.bind(
+            target_agent=current_route.target_agent,
+            thread_key=current_route.thread_key,
+            session_id=current_session.id,
+        )
         plan_mode = False
         ui.print_started_session(current_session.id)
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt.startswith("/resume"):
         parts = prompt.split(maxsplit=1)
         if len(parts) != 2:
             ui.print_usage("/resume <session_id>")
-            return True, agent, current_session, history, plan_mode
+            return True, agent, current_route, current_session, history, plan_mode
         return await _resume_session(
             session_id=parts[1].strip(),
             provider=provider,
             input_queue=input_queue,
             store=store,
+            router=router,
             agent=agent,
+            current_route=current_route,
             current_session=current_session,
             history=history,
             plan_mode=plan_mode,
@@ -218,8 +250,8 @@ async def _handle_command(
         )
     if prompt.startswith("/"):
         ui.print_unknown_command(prompt)
-        return True, agent, current_session, history, plan_mode
-    return False, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
+    return False, agent, current_route, current_session, history, plan_mode
 
 
 async def _run_plan_cycle(
@@ -278,26 +310,33 @@ async def _resume_session(
     provider: OpenRouterProvider,
     input_queue: "asyncio.Queue[UserInputRequest]",
     store: SessionStore,
+    router: SessionRouter,
     agent: HarnessAgent,
+    current_route: SessionRoute,
     current_session: SessionRecord,
     history: list[Message],
     plan_mode: bool,
     ui: ConsoleUI,
-) -> tuple[bool, HarnessAgent, SessionRecord, list[Message], bool]:
+) -> tuple[bool, HarnessAgent, SessionRoute, SessionRecord, list[Message], bool]:
     try:
         record = store.load(session_id)
     except FileNotFoundError:
         ui.print_unknown_session(session_id)
-        return True, agent, current_session, history, plan_mode
+        return True, agent, current_route, current_session, history, plan_mode
     await agent.flush_memory_updates()
     ui.drain_notice_queue(agent.notice_queue())
     agent = build_agent(provider, cwd=record.cwd, input_queue=input_queue)
     history = store.restore_into_agent(agent, record)
     current_session = record
+    current_route = router.bind(
+        target_agent=current_route.target_agent,
+        thread_key=current_route.thread_key,
+        session_id=record.id,
+    )
     plan_mode = False
     ui.print_resumed_session(record)
     ui.print_history_preview(history)
-    return True, agent, current_session, history, plan_mode
+    return True, agent, current_route, current_session, history, plan_mode
 
 
 async def _shutdown(agent: HarnessAgent, ui: ConsoleUI) -> None:

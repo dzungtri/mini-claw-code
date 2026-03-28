@@ -26,6 +26,7 @@ from mini_claw_code_py import (
     AgentTokenUsage,
     AgentToolCall,
     Message,
+    SessionRoute,
     SessionRecord,
     SessionStore,
     UserInputRequest,
@@ -269,12 +270,15 @@ class ConsoleUI:
     def print_teams(self, registry: object) -> None:
         self._print_lines_panel("Teams", registry.render().splitlines())
 
-    def print_session_status(self, session: SessionRecord) -> None:
+    def print_session_status(self, session: SessionRecord, *, route: SessionRoute | None = None) -> None:
         table = Table.grid(padding=(0, 1))
         table.add_column(style=theme.MUTED_BOLD, width=8)
         table.add_column(style=theme.BODY)
         table.add_row("id", Text(session.id, style=theme.BODY))
         table.add_row("title", Text(session.title, style=theme.BODY))
+        if route is not None:
+            table.add_row("agent", Text(route.target_agent, style=theme.BODY))
+            table.add_row("thread", Text(route.thread_key, style=theme.BODY))
         table.add_row("updated", Text(session.updated_at, style=theme.SUBTLE))
         self.console.print(
             Panel(

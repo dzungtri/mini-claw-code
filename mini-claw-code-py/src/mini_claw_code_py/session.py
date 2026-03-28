@@ -131,6 +131,11 @@ class SessionStore:
         raw = json.loads(path.read_text(encoding="utf-8"))
         return SessionRecord.from_json_dict(raw)
 
+    def persist(self, record: SessionRecord) -> SessionRecord:
+        self._ensure_layout(record.id)
+        self._write_record(record)
+        return record
+
     def list_recent(self, *, limit: int | None = None) -> list[SessionRecord]:
         records: list[SessionRecord] = []
         if not self.root.exists():

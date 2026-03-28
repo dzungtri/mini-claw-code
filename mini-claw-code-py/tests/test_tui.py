@@ -3,7 +3,15 @@ from pathlib import Path
 
 from rich.console import Console
 
-from mini_claw_code_py import Message, SessionStore, StopReason, SubagentProfileRegistry, ToolCall
+from mini_claw_code_py import (
+    Message,
+    SessionStore,
+    SessionRouter,
+    StopReason,
+    SubagentProfileRegistry,
+    ToolCall,
+    default_route_store,
+)
 from mini_claw_code_py.types import AssistantTurn
 from mini_claw_code_py.tui import (
     ConsoleUI,
@@ -128,7 +136,9 @@ def test_tui_handle_command_subagents_prints_registry(tmp_path: Path) -> None:
     console = Console(record=True, width=120)
     ui = ConsoleUI(console=console)
     store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    router = SessionRouter(default_route_store(tmp_path), store)
     current_session = store.create(cwd=tmp_path)
+    current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
 
     class DummyAgent:
         def subagent_profile_registry(self) -> SubagentProfileRegistry:
@@ -146,21 +156,23 @@ def test_tui_handle_command_subagents_prints_registry(tmp_path: Path) -> None:
                 }
             )
 
-    async def run() -> tuple[bool, object, object, list[Message], bool]:
+    async def run() -> tuple[bool, object, object, object, list[Message], bool]:
         return await _handle_command(
             prompt="/subagents",
             provider=None,  # type: ignore[arg-type]
             workspace=tmp_path,
             input_queue=asyncio.Queue(),
             store=store,
+            router=router,
             agent=DummyAgent(),  # type: ignore[arg-type]
+            current_route=current_route,
             current_session=current_session,
             history=[],
             plan_mode=False,
             ui=ui,
         )
 
-    handled, _, _, _, _ = asyncio.run(run())
+    handled, _, _, _, _, _ = asyncio.run(run())
 
     rendered = console.export_text()
     assert handled is True
@@ -172,7 +184,9 @@ def test_tui_handle_command_agents_prints_hosted_registry(tmp_path: Path) -> Non
     console = Console(record=True, width=120)
     ui = ConsoleUI(console=console)
     store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    router = SessionRouter(default_route_store(tmp_path), store)
     current_session = store.create(cwd=tmp_path)
+    current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
     (tmp_path / ".agents.json").write_text(
         (
             '{\n'
@@ -192,21 +206,23 @@ def test_tui_handle_command_agents_prints_hosted_registry(tmp_path: Path) -> Non
         def subagent_profile_registry(self) -> SubagentProfileRegistry:
             return SubagentProfileRegistry({})
 
-    async def run() -> tuple[bool, object, object, list[Message], bool]:
+    async def run() -> tuple[bool, object, object, object, list[Message], bool]:
         return await _handle_command(
             prompt="/agents",
             provider=None,  # type: ignore[arg-type]
             workspace=tmp_path,
             input_queue=asyncio.Queue(),
             store=store,
+            router=router,
             agent=DummyAgent(),  # type: ignore[arg-type]
+            current_route=current_route,
             current_session=current_session,
             history=[],
             plan_mode=False,
             ui=ui,
         )
 
-    handled, _, _, _, _ = asyncio.run(run())
+    handled, _, _, _, _, _ = asyncio.run(run())
 
     rendered = console.export_text()
     assert handled is True
@@ -219,7 +235,9 @@ def test_tui_handle_command_teams_prints_team_registry(tmp_path: Path) -> None:
     console = Console(record=True, width=120)
     ui = ConsoleUI(console=console)
     store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    router = SessionRouter(default_route_store(tmp_path), store)
     current_session = store.create(cwd=tmp_path)
+    current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
     (tmp_path / ".teams.json").write_text(
         (
             '{\n'
@@ -239,21 +257,23 @@ def test_tui_handle_command_teams_prints_team_registry(tmp_path: Path) -> None:
         def subagent_profile_registry(self) -> SubagentProfileRegistry:
             return SubagentProfileRegistry({})
 
-    async def run() -> tuple[bool, object, object, list[Message], bool]:
+    async def run() -> tuple[bool, object, object, object, list[Message], bool]:
         return await _handle_command(
             prompt="/teams",
             provider=None,  # type: ignore[arg-type]
             workspace=tmp_path,
             input_queue=asyncio.Queue(),
             store=store,
+            router=router,
             agent=DummyAgent(),  # type: ignore[arg-type]
+            current_route=current_route,
             current_session=current_session,
             history=[],
             plan_mode=False,
             ui=ui,
         )
 
-    handled, _, _, _, _ = asyncio.run(run())
+    handled, _, _, _, _, _ = asyncio.run(run())
 
     rendered = console.export_text()
     assert handled is True

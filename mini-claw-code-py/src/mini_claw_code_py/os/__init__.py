@@ -15,6 +15,7 @@ from .envelopes import (
     create_trace_id,
     utc_now_iso,
 )
+from .session_router import RouteStore, SessionRoute, SessionRouter, default_route_store
 from .work import (
     GOAL_STATUSES,
     RUN_STATUSES,
@@ -43,6 +44,9 @@ __all__ = [
     "HostedAgentRegistry",
     "MessageBus",
     "MessageEnvelope",
+    "RouteStore",
+    "SessionRoute",
+    "SessionRouter",
     "GOAL_STATUSES",
     "RUN_STATUSES",
     "TASK_STATUSES",
@@ -59,6 +63,7 @@ __all__ = [
     "create_trace_id",
     "default_agent_registry_paths",
     "default_os_state_root",
+    "default_route_store",
     "default_superagent_definition",
     "default_team_config_paths",
     "default_team_definition",

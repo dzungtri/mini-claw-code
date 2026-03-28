@@ -1,81 +1,243 @@
 # Chapter 40: Session Routing
 
-Once messages enter the bus and the OS knows which agents exist, it still needs to answer one critical question:
+By Chapter 39, the OS can model teams, goals, tasks, and runs.
 
-which session should receive this turn?
+It still does not know one critical thing:
+
+which harness session should receive the next turn?
 
 That is the job of session routing.
 
 ## The Core Problem
 
-The user-facing identity is not the same as the internal harness session identity.
+The outside world speaks in thread identities.
 
-For example:
+Examples:
 
-- external thread: `telegram:123456`
-- target agent: `superagent`
-- internal session: `sess_20260328_xxxxxx`
+- `cli:local`
+- `telegram:123456`
+- `dashboard:user-42`
 
-The OS needs to map between them.
+The harness does **not** use those identifiers directly.
 
-## The Right Mapping
+It uses `session_id`.
 
-The router should think in:
+So the OS needs a mapping layer between:
+
+- external conversation continuity
+- internal harness session continuity
+
+## The Mapping
+
+The routing key should be:
 
 ```text
 (target_agent, thread_key) -> session_id
 ```
 
-That is better than:
+This is better than:
 
-- just `thread_key`
+- only `thread_key`
 
-because several hosted agents may interact with the same external thread over time.
+because the same external thread may talk to different hosted agents over time.
 
-For the first implementation, the router should stay narrow:
+The OS should not lose that distinction.
 
-- route external conversation continuity to harness sessions
+## The First Concrete Shape
 
-It should **not** become the store for:
+The first local router should use:
 
-- goals
-- tasks
+```text
+.mini-claw/
+  os/
+    routes.json
+```
+
+Each route record should include:
+
+- `target_agent`
+- `thread_key`
+- `session_id`
+- `created_at`
+- `updated_at`
+
+That is enough to support local session continuity without introducing distributed coordination.
+
+## A Narrow Scope
+
+The first router should stay narrow.
+
+It should route:
+
+- external thread continuity
+- to harness sessions
+
+It should **not** store:
+
+- goal state
+- task state
 - team membership
-- planning state
+- run history
 
-Those belong in higher OS stores.
+Those already have better homes.
 
-## Requirements
+This separation is important:
 
-The first session router should:
+- routing decides where a turn goes
+- coordination stores decide what the work means
 
-- resolve existing sessions
-- create a new session when none exists
-- work with one or many hosted agents
-- remain local and file-backed
-- stay independent from team/task logic
+## CLI First
 
-It does **not** need:
+The first real consumer should be the existing CLI path.
+
+For the local CLI, the first thread key can simply be:
+
+```text
+target_agent = "superagent"
+thread_key = "cli:local"
+```
+
+That gives the CLI a stable route without inventing user IDs or machine IDs yet.
+
+The behavior should be:
+
+1. on startup, resolve `("superagent", "cli:local")`
+2. if the route exists and the session still exists, restore it
+3. otherwise create a fresh session and bind the route
+
+That makes Chapter 40 immediately real in `make cli`.
+
+## Why This Is Better Than Creating A Fresh Session Every Time
+
+Without routing, each new process launch creates a new session by default.
+
+That is fine for an early tutorial.
+
+But once the OS exists, the better default is:
+
+- one front-door thread
+- one resolved session
+- explicit `/new` when the operator wants to branch
+
+That makes the CLI feel more like a real front door instead of a stateless demo.
+
+## What `/new`, `/resume`, and `/fork` Should Mean
+
+Once routing exists, these commands should update the route too.
+
+### `/new`
+
+- create a fresh session
+- bind the current route to the new session
+
+### `/resume <id>`
+
+- load the selected session
+- rebind the current route to that session
+
+### `/fork`
+
+- create a forked session
+- move the current route to the fork
+
+That keeps the route aligned with the operator’s active session choice.
+
+## Route Store vs Router
+
+The first implementation should keep these separate:
+
+### `RouteStore`
+
+File-backed persistence for route records.
+
+### `SessionRouter`
+
+Routing logic:
+
+- resolve
+- bind
+- resolve-or-create
+
+That keeps the code easy to test.
+
+## Required First-Slice Operations
+
+The first router should support:
+
+- `resolve(target_agent, thread_key)`
+- `bind(target_agent, thread_key, session_id)`
+- `resolve_or_create(target_agent, thread_key, cwd)`
+
+And it should cooperate with the existing `SessionStore` from Chapter 29.
+
+The router should not replace the session store.
+
+It should sit above it.
+
+## Missing Session Recovery
+
+There is one important edge case:
+
+What if the route exists, but the referenced session file is gone?
+
+The first router should handle that cleanly:
+
+- create a fresh session
+- update the route to the new session
+
+It should not leave the route in a broken state.
+
+## Runtime Surface
+
+The first CLI does not need a full route inspector yet.
+
+But `/session` should at least be able to show:
+
+- current session id
+- current thread key
+- current target agent
+
+That is enough to make routing visible.
+
+## What We Intentionally Skip
+
+The first router does **not** need:
 
 - cross-machine replication
 - distributed leases
-- strong consistency protocols
+- conflict resolution across several writers
+- route expiry policies
+- channel-specific metadata stores
 
-## Architecture
+Those are later Agent OS concerns.
 
-The first version should include:
+## Main Design Rule
+
+Keep routing as a translation layer, not a giant state container.
+
+The router should answer:
+
+- where should this thread go?
+
+It should not answer:
+
+- what is the goal?
+- what is the task?
+- who owns the team?
+- what happened in the run?
+
+That is how the architecture stays clean.
+
+## Implementation Target
+
+The first concrete slice should introduce:
 
 - `SessionRoute`
-- `SessionRouter`
 - `RouteStore`
+- `SessionRouter`
 
-The key contract is:
+And it should wire the CLI through:
 
-```python
-session_id = router.resolve(
-    target_agent="superagent",
-    thread_key="cli:local",
-)
-```
+- `("superagent", "cli:local")`
 
-That keeps session identity as an OS concern while preserving `HarnessAgent` as the runtime executor.
+That gives the OS a real front-door routing layer before we build the turn runner in Chapter 41.
