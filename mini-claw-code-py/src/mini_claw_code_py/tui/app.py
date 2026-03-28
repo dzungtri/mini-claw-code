@@ -8,13 +8,17 @@ from mini_claw_code_py import (
     HostedAgentFactory,
     HostedAgentRegistry,
     Message,
+    MessageEnvelope,
     OpenRouterProvider,
+    RunStore,
     SessionRoute,
     SessionRecord,
     SessionStore,
     SessionRouter,
     TeamRegistry,
+    TurnRunner,
     UserInputRequest,
+    default_os_state_root,
     default_route_store,
 )
 
@@ -46,7 +50,21 @@ async def run_cli(*, cwd: Path | None = None) -> None:
     input_queue: asyncio.Queue[UserInputRequest] = asyncio.Queue()
     store = SessionStore(workspace / ".mini-claw" / "sessions")
     router = SessionRouter(default_route_store(workspace), store)
+    runs = RunStore(default_os_state_root(workspace))
     ui = ConsoleUI()
+    registry = HostedAgentRegistry.discover_default(cwd=workspace, home=Path.home())
+    factory = HostedAgentFactory(
+        provider=provider,
+        home=Path.home(),
+        input_queue=input_queue,
+    )
+    runner = TurnRunner(
+        registry=registry,
+        factory=factory,
+        router=router,
+        sessions=store,
+        runs=runs,
+    )
 
     agent = build_agent(provider, cwd=workspace, input_queue=input_queue)
     current_route, current_session = router.resolve_or_create(
@@ -94,9 +112,9 @@ async def run_cli(*, cwd: Path | None = None) -> None:
 
         if not plan_mode and agent.todo_board().all_completed():
             agent.todo_board().clear()
-        history.append(Message.user(prompt))
 
         if plan_mode:
+            history.append(Message.user(prompt))
             approved, agent, current_session, history = await _run_plan_cycle(
                 agent=agent,
                 current_session=current_session,
@@ -110,10 +128,24 @@ async def run_cli(*, cwd: Path | None = None) -> None:
             continue
 
         event_queue: asyncio.Queue[object] = asyncio.Queue()
-        worker = asyncio.create_task(agent.execute(history, event_queue))
+        worker = asyncio.create_task(
+            runner.run(
+                MessageEnvelope(
+                    source="cli",
+                    target_agent=current_route.target_agent,
+                    thread_key=current_route.thread_key,
+                    kind="user_message",
+                    content=prompt,
+                ),
+                event_queue,
+            )
+        )
         await ui.run_agent_stream(event_queue, input_queue, spinner_label="Executing")
-        await worker
-        current_session = _save_session(store, current_session, history, agent)
+        result = await worker
+        agent = result.agent
+        history = result.history
+        current_route = result.context.route
+        current_session = result.context.session
 
 
 async def _handle_command(

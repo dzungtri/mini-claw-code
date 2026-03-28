@@ -133,7 +133,7 @@ class TaskRecord:
 @dataclass(slots=True)
 class RunRecord:
     run_id: str
-    task_id: str
+    task_id: str | None
     agent_name: str
     session_id: str
     trace_id: str
@@ -142,7 +142,8 @@ class RunRecord:
     finished_at: str | None
 
     def __post_init__(self) -> None:
-        self.task_id = self.task_id.strip()
+        if self.task_id is not None:
+            self.task_id = self.task_id.strip()
         self.agent_name = self.agent_name.strip()
         self.session_id = self.session_id.strip()
         self.trace_id = self.trace_id.strip()
@@ -273,7 +274,7 @@ class RunStore:
         self.root = Path(root).expanduser().resolve()
         self.path = self.root / "runs.json"
 
-    def start(self, *, task_id: str, agent_name: str, session_id: str, trace_id: str) -> RunRecord:
+    def start(self, *, task_id: str | None, agent_name: str, session_id: str, trace_id: str) -> RunRecord:
         record = RunRecord(
             run_id=_create_os_id("run"),
             task_id=task_id,

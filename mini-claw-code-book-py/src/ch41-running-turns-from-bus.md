@@ -1,78 +1,242 @@
 # Chapter 41: Running Harness Turns From the Bus
 
-At this point, the OS has:
+By Chapter 40, the OS can:
 
-- message envelopes
-- a bus
-- an agent registry
-- session routing
+- receive envelopes
+- know which hosted agents exist
+- route a front-door thread to a harness session
 
-Now it needs one more thing:
+Now it needs one more piece:
 
-a runner that can turn one bus message into one harness turn.
+a runner.
 
-## The Goal
+The runner is the OS component that turns:
 
-We want a clean runner contract:
+- one inbound envelope
 
-1. receive one envelope
-2. resolve target agent
-3. resolve session
-4. build a harness runtime from the registry definition
-5. run one turn
-6. stream events
-7. publish final outputs
-8. emit trace and log state for operators
+into:
 
-## Requirements
+- one harness turn
+- one persisted session update
+- one run record
+- one outbound envelope
 
-The runner should:
+## What We Are Building
 
-- work for the current CLI path first
-- preserve session continuity
-- stream the same runtime events we already have
-- remain compatible with `make cli`
-- assign or propagate trace identifiers
-- support later cancellation hooks
+The first runner should stay local and small.
 
-For the first implementation, prefer:
+It should:
 
-- build a fresh harness runtime per turn
-- restore durable session state into it
+1. receive one `MessageEnvelope`
+2. resolve the hosted agent
+3. resolve the routed session
+4. build a fresh `HarnessAgent`
+5. restore durable session state
+6. append the inbound message
+7. execute one turn
+8. persist session state
+9. persist a run record
+10. return one outbound envelope
 
-That is simpler and safer than introducing long-lived runtime caches too early.
+That is enough to make the OS path real.
 
-It does **not** need:
+## Why A Runner Is Necessary
 
-- horizontal scaling
-- multiple worker pools
-- distributed schedulers
+Without a runner, the OS still has two separate worlds:
 
-## Architecture
+- the OS world of envelopes, routes, and agent identities
+- the harness world of messages, tools, and model turns
 
-The first version should include:
+The runner is the bridge.
 
-- `TurnRunner`
+It is where the OS calls into the harness.
+
+## Fresh Runtime Per Turn
+
+The first runner should build a fresh harness runtime on every turn.
+
+That means:
+
+- look up the hosted agent definition
+- build a new `HarnessAgent` from the factory
+- restore saved session state into it
+
+This is the right first tradeoff.
+
+It is simpler than long-lived runtime pools, and it matches the session design we already built.
+
+## The First Concrete Types
+
+The first slice should introduce:
+
 - `RunnerContext`
 - `RunnerResult`
-- run tracing hooks
+- `TurnRunner`
 
-The key contract is:
+The key call stays small:
 
 ```python
 result = await runner.run(envelope)
 ```
 
-That call should stay small.
+## `RunnerContext`
 
-The runner is an OS component.
+The context should capture the important OS correlation state for the turn:
 
-The harness remains the execution engine inside it.
+- inbound envelope
+- resolved route
+- resolved session
+- started run record
 
-That means the runner becomes the best place to correlate:
+That gives the caller one stable object to inspect.
 
-- one inbound envelope
-- one target agent
-- one session
-- one run id
-- one trace id
+## `RunnerResult`
+
+The result should return:
+
+- the context
+- the built `HarnessAgent`
+- the updated history
+- the final reply text
+- the outbound envelope
+
+Returning the built agent matters for the CLI.
+
+The CLI still wants to inspect:
+
+- todos
+- artifacts
+- MCP state
+- audit state
+
+after the turn finishes.
+
+So the runner should not hide the built harness runtime.
+
+## Run Records
+
+The runner should start a run record at the beginning of execution and finish it at the end.
+
+For the first slice:
+
+- `task_id` may be missing
+
+Why:
+
+The front-door `superagent` path exists before we have full goal-to-task orchestration.
+
+That should not stop us from recording traceable runs.
+
+So the first run record may describe:
+
+- a front-door conversation turn
+
+without already being attached to a formal team task.
+
+Later chapters can connect those more tightly.
+
+## Event Streaming
+
+The first runner should stream the same harness runtime events the CLI already knows how to render.
+
+That means the runner should not invent a second event language for basic turn output.
+
+For the first slice:
+
+- the runner passes through harness runtime events
+- and optionally publishes OS event envelopes if a bus is attached
+
+That keeps the user surface stable while the OS grows underneath it.
+
+## Bus Publishing
+
+The first runner should support an optional `MessageBus`.
+
+If a bus is present, the runner should publish:
+
+- `run_started`
+- `run_finished`
+- `outbound_message`
+
+If no bus is present, the runner should still work.
+
+That is important because the first real consumer is the local CLI, not a distributed worker system.
+
+## Message Conversion
+
+The runner needs one small translation step:
+
+- inbound `MessageEnvelope`
+- to harness `Message`
+
+For the first slice:
+
+- `user_message` becomes `Message.user(...)`
+- `system_message` becomes `Message.system(...)`
+- `background_message` can follow the user path until later chapters need something richer
+
+That is enough for the early OS path.
+
+## CLI First
+
+The current CLI should start using the runner for normal execution turns.
+
+That means:
+
+- prompt becomes inbound envelope
+- runner executes the turn
+- CLI renders the same event stream
+- current session and route are updated from the runner result
+
+For this chapter, plan mode can stay on the direct harness path.
+
+That keeps the first runner slice small and avoids mixing bus execution with plan approval flow too early.
+
+## What We Intentionally Skip
+
+The first runner does **not** need:
+
+- worker pools
+- distributed schedulers
+- remote execution
+- cancellation tokens
+- task retries
+- concurrency controls
+
+Those belong later.
+
+## Main Design Rule
+
+Keep the runner as a wrapper around the harness, not a second agent framework.
+
+The runner should:
+
+- correlate
+- restore
+- execute
+- persist
+- publish
+
+It should not:
+
+- own prompt design
+- own tool definitions
+- own model behavior
+
+Those still belong to the harness.
+
+## Implementation Target
+
+The first concrete slice should introduce:
+
+- `TurnRunner`
+- `RunnerContext`
+- `RunnerResult`
+
+And it should move the CLI execution path to:
+
+```text
+prompt -> MessageEnvelope -> TurnRunner -> HarnessAgent -> RunnerResult
+```
+
+That is the point where the Agent OS stops being only design and starts becoming the real runtime path.

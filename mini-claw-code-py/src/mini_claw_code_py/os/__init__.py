@@ -16,6 +16,7 @@ from .envelopes import (
     utc_now_iso,
 )
 from .session_router import RouteStore, SessionRoute, SessionRouter, default_route_store
+from .runner import RunnerContext, RunnerResult, TurnRunner
 from .work import (
     GOAL_STATUSES,
     RUN_STATUSES,
@@ -45,8 +46,11 @@ __all__ = [
     "MessageBus",
     "MessageEnvelope",
     "RouteStore",
+    "RunnerContext",
+    "RunnerResult",
     "SessionRoute",
     "SessionRouter",
+    "TurnRunner",
     "GOAL_STATUSES",
     "RUN_STATUSES",
     "TASK_STATUSES",
