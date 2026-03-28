@@ -1,4 +1,4 @@
-from .app import run_cli
+from .work_app import run_cli, WorkApp
 from .console import (
     ConsoleUI,
     command_rows,
@@ -9,6 +9,7 @@ from .console import (
 
 __all__ = [
     "ConsoleUI",
+    "WorkApp",
     "command_rows",
     "resolve_option_answer",
     "resolve_session_selection",

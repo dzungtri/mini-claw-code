@@ -37,12 +37,14 @@ def build_agent(
     *,
     cwd: Path,
     input_queue: "asyncio.Queue[UserInputRequest]",
+    home: Path | None = None,
 ) -> HarnessAgent:
-    registry = HostedAgentRegistry.discover_default(cwd=cwd, home=Path.home())
+    resolved_home = Path.home() if home is None else Path(home)
+    registry = HostedAgentRegistry.discover_default(cwd=cwd, home=resolved_home)
     definition = registry.require("superagent")
     return HostedAgentFactory(
         provider=provider,
-        home=Path.home(),
+        home=resolved_home,
         input_queue=input_queue,
     ).build(definition)
 

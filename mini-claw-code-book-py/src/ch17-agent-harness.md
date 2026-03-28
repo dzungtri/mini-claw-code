@@ -323,6 +323,7 @@ So from Chapter 17 onward, the project should treat these as two tracks:
 - the new harness track:
   - `harness.py`
   - `src/mini_claw_code_py/tui/app.py`
+  - `src/mini_claw_code_py/tui/work_app.py`
   - `src/mini_claw_code_py/tui/console.py`
 
 This is a good tradeoff.
@@ -350,7 +351,7 @@ instead of a new app for every later chapter.
 
 So from Chapter 18 onward, the tutorial should keep extending one CLI:
 
-- `src/mini_claw_code_py/tui/app.py`
+- `src/mini_claw_code_py/tui/work_app.py`
 
 The `examples/cli.py` file can stay as a tiny wrapper, but the real app logic
 should now live in the package.

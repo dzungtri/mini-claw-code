@@ -15,7 +15,7 @@ There are now two useful layers in the Python project:
 - `examples/tui.py`
   - the earlier small teaching example around `PlanAgent`
 - `src/mini_claw_code_py/tui/`
-  - the richer terminal UI package used by the harness app
+  - the richer terminal UI package used by the harness app and later work console
 
 That is the right split.
 
@@ -28,7 +28,7 @@ The reusable `tui` package owns the nicer terminal UX.
 ```mermaid
 flowchart LR
     Agent["HarnessAgent / PlanAgent"] --> Events["Agent events"]
-    Events --> UI["ConsoleUI"]
+    Events --> UI["TUI surface"]
     Ask["UserInputRequest queue"] --> UI
     UI --> User["User"]
     User --> UI
@@ -54,8 +54,13 @@ The terminal UI multiplexes three things at once:
 2. user-input requests
 3. spinner state while work is active
 
-The updated Python version now does the same with `asyncio.wait(...)` and a
-small Rich-based status layer.
+The updated Python version now does the same with an evented terminal surface.
+
+Early chapters use a small Rich-based loop.
+
+Later chapters keep the same backend ideas but move the real `make cli` surface
+onto a Textual app, because session control, streaming, and slash commands grow
+beyond what a simple line-oriented loop should own.
 
 ```mermaid
 flowchart LR
@@ -83,9 +88,11 @@ The better design is:
 - `examples/cli.py`
   - thin compatibility wrapper only
 - `src/mini_claw_code_py/tui/app.py`
-  - command loop, session actions, plan/execute orchestration
+  - command/session backend helpers and compatibility logic
+- `src/mini_claw_code_py/tui/work_app.py`
+  - the Textual work console used by `make cli`
 - `src/mini_claw_code_py/tui/console.py`
-  - terminal rendering, input prompts, session selection, spinner
+  - shared Rich rendering helpers and fallback console formatting
 - `src/mini_claw_code_py/tui/theme.py`
   - semantic style constants
 - `src/mini_claw_code_py/tui/__main__.py`
@@ -104,15 +111,17 @@ It is part of the runtime surface.
 
 ## Why this is still tutorial-friendly
 
-The Python version is still deliberately smaller than a full `textual`
-application:
+The project now uses both layers deliberately:
 
-- it uses `rich` panels, tables, and spinners instead of a custom full-screen
-  layout engine
-- option prompts are still simple numbered selections instead of arrow-key menus
-- it does not try to render markdown or manage a full-screen layout
+- Rich helpers for simple rendering logic and testable text formatting
+- Textual for the real full-screen work console and operator console
 
-But it now has the high-value behavior people actually notice:
+That is a better long-term split than forcing either tool to do everything.
+
+The tutorial remains readable because the backend runtime logic still lives in
+normal Python modules, while the TUI layer stays thin around that runtime.
+
+And it still has the high-value behavior people actually notice:
 
 - a visible thinking state
 - cleaner separation between streamed answer text and tool activity

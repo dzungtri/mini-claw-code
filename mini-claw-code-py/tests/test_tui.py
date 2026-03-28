@@ -1,11 +1,15 @@
 import asyncio
+from collections import deque
 from pathlib import Path
 
+import pytest
 from rich.console import Console
+from textual.widgets import RichLog, Static
 
 from mini_claw_code_py import (
     GoalStore,
     Message,
+    MockStreamProvider,
     RunStore,
     SessionWorkStore,
     SessionStore,
@@ -19,6 +23,7 @@ from mini_claw_code_py import (
 from mini_claw_code_py.types import AssistantTurn
 from mini_claw_code_py.tui import (
     ConsoleUI,
+    WorkApp,
     resolve_option_answer,
     resolve_session_selection,
     summarize_tool_call,
@@ -486,3 +491,90 @@ def _write_temp_subagent_config(root: Path) -> Path:
         encoding="utf-8",
     )
     return config_path
+
+
+def _build_work_app(tmp_path: Path, turns: deque[AssistantTurn]) -> WorkApp:
+    (tmp_path / "home").mkdir(exist_ok=True)
+    provider = MockStreamProvider(turns)
+    return WorkApp(provider=provider, cwd=tmp_path, home=tmp_path / "home")
+
+
+async def _pause_twice(pilot: object) -> None:
+    await pilot.pause()
+    await pilot.pause()
+
+
+async def _press_text(pilot: object, text: str) -> None:
+    keys = [character if character != " " else "space" for character in text]
+    if keys:
+        await pilot.press(*keys)
+
+
+async def _transcript_text(app: WorkApp) -> str:
+    transcript = app.query_one("#transcript", RichLog)
+    rendered_lines: list[str] = []
+    for line in transcript.lines:
+        segments = getattr(line, "_segments", None) or getattr(line, "segments", None)
+        if segments is None:
+            rendered_lines.append(str(line))
+            continue
+        rendered_lines.append("".join(segment.text for segment in segments))
+    return "\n".join(rendered_lines)
+
+
+@pytest.mark.asyncio
+async def test_tui_work_app_mounts_and_renders_session_summary(tmp_path: Path) -> None:
+    app = _build_work_app(tmp_path, deque())
+
+    async with app.run_test() as pilot:
+        await _pause_twice(pilot)
+        summary = app.query_one("#summary", Static)
+        sidebar = app.query_one("#sidebar", Static)
+
+        assert "mode=execution" in str(summary.content)
+        assert "session=" in str(summary.content)
+        assert "work=no active binding" in str(sidebar.content)
+
+
+@pytest.mark.asyncio
+async def test_tui_work_app_executes_prompt_and_updates_history_and_runs(tmp_path: Path) -> None:
+    app = _build_work_app(
+        tmp_path,
+        deque([AssistantTurn(text="Hello from work app.", tool_calls=[], stop_reason=StopReason.STOP)]),
+    )
+
+    async with app.run_test() as pilot:
+        await _pause_twice(pilot)
+        await _press_text(pilot, "Hello")
+        await pilot.press("enter")
+        await _pause_twice(pilot)
+        await _pause_twice(pilot)
+
+        summary = app.query_one("#summary", Static)
+        transcript_text = await _transcript_text(app)
+        runs = RunStore(tmp_path / ".mini-claw" / "os").list()
+
+        assert "run_state=idle" in str(summary.content)
+        assert app.history[-1].turn is not None
+        assert app.history[-1].turn.text == "Hello from work app."
+        assert any(run.status == "completed" for run in runs)
+        assert "Hello from work app." in transcript_text
+
+
+@pytest.mark.asyncio
+async def test_tui_work_app_handles_slash_commands_in_textual_console(tmp_path: Path) -> None:
+    app = _build_work_app(tmp_path, deque())
+
+    async with app.run_test() as pilot:
+        await _pause_twice(pilot)
+        await pilot.press("/", "p", "l", "a", "n", "enter")
+        await _pause_twice(pilot)
+        await pilot.press("/", "s", "t", "a", "t", "u", "s", "enter")
+        await _pause_twice(pilot)
+
+        summary = app.query_one("#summary", Static)
+        transcript_text = await _transcript_text(app)
+
+        assert "mode=planning" in str(summary.content)
+        assert "planning ON" in transcript_text
+        assert "Control profile:" in transcript_text
