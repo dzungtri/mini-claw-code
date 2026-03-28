@@ -81,7 +81,7 @@ class SessionStore:
         return SessionRecord(
             version=SESSION_VERSION,
             id=create_session_id(),
-            title=title or DEFAULT_SESSION_TITLE,
+            title=_normalize_session_title(title) if title is not None else DEFAULT_SESSION_TITLE,
             created_at=now,
             updated_at=now,
             cwd=Path(cwd).expanduser().resolve(),
@@ -172,6 +172,34 @@ class SessionStore:
     def read_blob(self, session_id: str, content_ref: str) -> str:
         return self.blob_path(session_id, content_ref).read_text(encoding="utf-8")
 
+    def rename(self, record: SessionRecord, title: str) -> SessionRecord:
+        record.title = _normalize_session_title(title)
+        record.updated_at = utc_now_iso()
+        self._ensure_layout(record.id)
+        self._write_record(record)
+        return record
+
+    def fork(self, record: SessionRecord, *, title: str | None = None) -> SessionRecord:
+        self._ensure_layout(record.id)
+        self._write_record(record)
+
+        forked = SessionRecord.from_json_dict(record.to_json_dict())
+        now = utc_now_iso()
+        forked.id = create_session_id()
+        forked.title = (
+            _normalize_session_title(title)
+            if title is not None
+            else _fork_title(record.title)
+        )
+        forked.created_at = now
+        forked.updated_at = now
+
+        source_dir = self.session_dir(record.id)
+        target_dir = self.session_dir(forked.id)
+        shutil.copytree(source_dir, target_dir)
+        self._write_record(forked)
+        return forked
+
     def _write_record(self, record: SessionRecord) -> None:
         path = self.session_dir(record.id) / "session.json"
         temp_path = path.with_suffix(".json.tmp")
@@ -180,6 +208,11 @@ class SessionStore:
             encoding="utf-8",
         )
         temp_path.replace(path)
+
+    def _ensure_layout(self, session_id: str) -> None:
+        session_dir = self.session_dir(session_id)
+        (session_dir / "blobs").mkdir(parents=True, exist_ok=True)
+        (session_dir / "archive").mkdir(parents=True, exist_ok=True)
 
 
 def create_session_id() -> str:
@@ -199,6 +232,18 @@ def derive_session_title(messages: list[Message]) -> str:
             text = text[:69].rstrip() + "..."
         return text or DEFAULT_SESSION_TITLE
     return DEFAULT_SESSION_TITLE
+
+
+def _normalize_session_title(title: str) -> str:
+    normalized = " ".join(title.strip().split())
+    if not normalized:
+        raise ValueError("session title cannot be empty")
+    return normalized
+
+
+def _fork_title(title: str) -> str:
+    normalized = title.strip() or DEFAULT_SESSION_TITLE
+    return f"{normalized} (fork)"
 
 
 def strip_injected_system_prompt(messages: list[Message]) -> list[Message]:

@@ -20,6 +20,7 @@ from .types import JSONValue, ToolDefinition
 
 _ENV_VAR_RE = re.compile(r"\$\{([^}:]+)(?::-([^}]*))?\}")
 _KNOWN_TRANSPORTS = {"stdio", "http", "sse"}
+_STDIO_ERRLOG = open(os.devnull, "w", encoding="utf-8")
 
 
 @dataclass(slots=True)
@@ -443,7 +444,8 @@ async def _server_transport(
                 args=params["args"],
                 env=params.get("env"),
                 cwd=params["cwd"],
-            )
+            ),
+            errlog=_STDIO_ERRLOG,
         ) as streams:
             yield streams
         return

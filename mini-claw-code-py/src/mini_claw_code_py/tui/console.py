@@ -51,6 +51,8 @@ DEFAULT_COMMAND_ROWS: Final[tuple[tuple[str, str], ...]] = (
     ("/todos", "show todo state"),
     ("/session", "show current session"),
     ("/sessions", "show recent sessions and select one to resume"),
+    ("/rename <title>", "rename the current session"),
+    ("/fork", "fork the current session into a new session id"),
     ("/audit", "show audit log"),
     ("/new", "start a fresh session"),
     ("/resume <id>", "resume a saved session"),
@@ -169,11 +171,11 @@ class ConsoleUI:
 
     def print_banner(self, *, cwd: str, session_id: str) -> None:
         info = Table.grid(padding=(0, 1))
-        info.add_column(style=theme.MUTED, width=10)
-        info.add_column()
-        info.add_row("workspace", cwd)
-        info.add_row("session", session_id)
-        info.add_row("hint", "Use /help for commands. Press Ctrl-D or /quit to exit.")
+        info.add_column(style=theme.MUTED_BOLD, width=10)
+        info.add_column(style=theme.BODY)
+        info.add_row("workspace", Text(cwd, style=theme.BODY))
+        info.add_row("session", Text(session_id, style=theme.BODY))
+        info.add_row("hint", Text("Use /help for commands. Press Ctrl-D or /quit to exit.", style=theme.SUBTLE))
         self.console.print(
             Panel(
                 info,
@@ -188,7 +190,7 @@ class ConsoleUI:
     def print_help(self) -> None:
         table = Table(box=box.SIMPLE_HEAVY, border_style=theme.BORDER, show_header=False)
         table.add_column(style=theme.PRIMARY_BOLD, no_wrap=True)
-        table.add_column(style="")
+        table.add_column(style=theme.BODY)
         for command, description in command_rows():
             table.add_row(command, description)
         self.console.print(
@@ -216,11 +218,18 @@ class ConsoleUI:
 
     def print_mode_change(self, *, plan_mode: bool) -> None:
         state = "ON" if plan_mode else "OFF"
-        self._print_line("mode", f"planning {state}", style=theme.SUCCESS if plan_mode else theme.MUTED)
+        self._print_line(
+            "mode",
+            f"planning {state}",
+            label_style=theme.WARNING_BOLD,
+            text_style=theme.BODY,
+        )
         if plan_mode:
             self._print_line(
                 "note",
                 "planning is read-only: the agent can inspect, ask questions, and update todos, but it will not edit files or run subagents.",
+                label_style=theme.MUTED_BOLD,
+                text_style=theme.SUBTLE,
             )
         self.console.print()
 
@@ -238,11 +247,11 @@ class ConsoleUI:
 
     def print_session_status(self, session: SessionRecord) -> None:
         table = Table.grid(padding=(0, 1))
-        table.add_column(style=theme.MUTED, width=8)
-        table.add_column()
-        table.add_row("id", session.id)
-        table.add_row("title", session.title)
-        table.add_row("updated", session.updated_at)
+        table.add_column(style=theme.MUTED_BOLD, width=8)
+        table.add_column(style=theme.BODY)
+        table.add_row("id", Text(session.id, style=theme.BODY))
+        table.add_row("title", Text(session.title, style=theme.BODY))
+        table.add_row("updated", Text(session.updated_at, style=theme.SUBTLE))
         self.console.print(
             Panel(
                 table,
@@ -257,15 +266,15 @@ class ConsoleUI:
     def print_session_list(self, store: SessionStore, *, limit: int = 10) -> list[SessionRecord]:
         records = store.list_recent(limit=limit)
         if not records:
-            self._print_line("note", "No saved sessions yet.")
+            self._print_line("note", "No saved sessions yet.", label_style=theme.MUTED_BOLD, text_style=theme.SUBTLE)
             self.console.print()
             return []
 
         table = Table(box=box.SIMPLE_HEAVY, border_style=theme.BORDER)
-        table.add_column("#", style=theme.MUTED, no_wrap=True, width=3)
-        table.add_column("ID", style=theme.PRIMARY_BOLD, no_wrap=True)
-        table.add_column("Title")
-        table.add_column("Updated", style=theme.MUTED, no_wrap=True)
+        table.add_column("#", style=theme.SUBTLE, header_style=theme.MUTED_BOLD, no_wrap=True, width=3)
+        table.add_column("ID", style=theme.PRIMARY_BOLD, header_style=theme.MUTED_BOLD, no_wrap=True)
+        table.add_column("Title", style=theme.BODY, header_style=theme.MUTED_BOLD)
+        table.add_column("Updated", style=theme.SUBTLE, header_style=theme.MUTED_BOLD, no_wrap=True)
         for index, record in enumerate(records, start=1):
             table.add_row(str(index), record.id, record.title, record.updated_at)
         self.console.print(
@@ -277,7 +286,12 @@ class ConsoleUI:
                 padding=(0, 1),
             )
         )
-        self._print_line("hint", "Enter a row number or session id to resume. Press Enter to cancel.")
+        self._print_line(
+            "hint",
+            "Enter a row number or session id to resume. Press Enter to cancel.",
+            label_style=theme.MUTED_BOLD,
+            text_style=theme.SUBTLE,
+        )
         self.console.print()
         return records
 
@@ -302,11 +316,34 @@ class ConsoleUI:
         self.console.print()
 
     def print_started_session(self, session_id: str) -> None:
-        self._print_line("session", f"started {session_id}", style=theme.SUCCESS)
+        self._print_line("session", f"started {session_id}", label_style=theme.PRIMARY_BOLD, text_style=theme.BODY)
         self.console.print()
 
     def print_resumed_session(self, session: SessionRecord) -> None:
-        self._print_line("session", f"resumed {session.id} | {session.title}", style=theme.SUCCESS)
+        self._print_line(
+            "session",
+            f"resumed {session.id} | {session.title}",
+            label_style=theme.PRIMARY_BOLD,
+            text_style=theme.BODY,
+        )
+        self.console.print()
+
+    def print_renamed_session(self, session: SessionRecord) -> None:
+        self._print_line(
+            "session",
+            f"renamed {session.id} | {session.title}",
+            label_style=theme.PRIMARY_BOLD,
+            text_style=theme.BODY,
+        )
+        self.console.print()
+
+    def print_forked_session(self, source: SessionRecord, forked: SessionRecord) -> None:
+        self._print_line(
+            "session",
+            f"forked {source.id} -> {forked.id} | {forked.title}",
+            label_style=theme.PRIMARY_BOLD,
+            text_style=theme.BODY,
+        )
         self.console.print()
 
     def print_history_preview(self, history: list[Message], *, limit: int = 8) -> None:
@@ -319,10 +356,10 @@ class ConsoleUI:
             return
 
         preview = Table.grid(padding=(0, 1))
-        preview.add_column(style=theme.MUTED, width=10, no_wrap=True)
-        preview.add_column()
+        preview.add_column(style=theme.MUTED_BOLD, width=10, no_wrap=True)
+        preview.add_column(style=theme.BODY)
         for role, text in rows[-limit:]:
-            preview.add_row(role, text)
+            preview.add_row(role, Text(text, style=theme.BODY))
         self.console.print(
             Panel(
                 preview,
@@ -335,16 +372,16 @@ class ConsoleUI:
         self.console.print()
 
     def print_usage(self, message: str) -> None:
-        self._print_line("usage", message, style=theme.WARNING)
+        self._print_line("usage", message, label_style=theme.WARNING_BOLD, text_style=theme.SUBTLE)
         self.console.print()
 
     def print_unknown_session(self, session_id: str) -> None:
-        self._print_line("error", f"unknown session: {session_id}", style=theme.ERROR)
+        self._print_line("error", f"unknown session: {session_id}", label_style=theme.ERROR_BOLD, text_style=theme.ERROR)
         self.console.print()
 
     def print_unknown_command(self, command: str) -> None:
-        self._print_line("error", f"unknown command: {command}", style=theme.ERROR)
-        self._print_line("hint", "use /help to see supported commands")
+        self._print_line("error", f"unknown command: {command}", label_style=theme.ERROR_BOLD, text_style=theme.ERROR)
+        self._print_line("hint", "use /help to see supported commands", label_style=theme.MUTED_BOLD, text_style=theme.SUBTLE)
         self.console.print()
 
     def drain_notice_queue(self, queue: "asyncio.Queue[object]") -> None:
@@ -354,7 +391,7 @@ class ConsoleUI:
             if isinstance(event, STRUCTURED_EVENT_TYPES):
                 block = surface_block_for_event(event)
                 if block is None:
-                    self._print_line("note", event.message)
+                    self._print_line("note", event.message, label_style=theme.MUTED_BOLD, text_style=theme.SUBTLE)
                 else:
                     self._print_surface_block(block.kind, render_surface_block(block))
                 last_structured_message = getattr(event, "message", None)
@@ -363,7 +400,7 @@ class ConsoleUI:
                 if last_structured_message == event.message:
                     last_structured_message = None
                     continue
-                self._print_line("note", event.message)
+                self._print_line("note", event.message, label_style=theme.MUTED_BOLD, text_style=theme.SUBTLE)
         if last_structured_message is not None:
             self.console.print()
 
@@ -414,6 +451,7 @@ class ConsoleUI:
                 if not streaming_text:
                     spinner.stop()
                     self.console.print(Text("assistant", style=theme.PRIMARY_BOLD), end=" ")
+                    self.console.file.write("\x1b[0m")
                     streaming_text = True
                 self.console.file.write(event.text)
                 self.console.file.flush()
@@ -438,14 +476,15 @@ class ConsoleUI:
                 if decision.show:
                     if decision.message == "additional tool calls omitted":
                         collapsed_tools_reported = True
-                    self._print_line("tool", decision.message, style=theme.TOOL)
+                    text_style = theme.SUBTLE if decision.message == "additional tool calls omitted" else theme.BODY
+                    self._print_line("tool", decision.message, label_style=theme.TOOL_BOLD, text_style=text_style)
                 spinner.start(spinner_label)
                 continue
 
             if isinstance(event, AgentNotice):
                 spinner.stop()
                 if last_structured_message != event.message:
-                    self._print_line("note", event.message)
+                    self._print_line("note", event.message, label_style=theme.MUTED_BOLD, text_style=theme.SUBTLE)
                 else:
                     last_structured_message = None
                 spinner.start(spinner_label)
@@ -469,7 +508,7 @@ class ConsoleUI:
 
             if isinstance(event, AgentError):
                 spinner.stop()
-                self._print_line("error", event.error, style=theme.ERROR)
+                self._print_line("error", event.error, label_style=theme.ERROR_BOLD, text_style=theme.ERROR)
                 self.console.print()
                 return
 
@@ -499,21 +538,28 @@ class ConsoleUI:
     def _print_surface_block(self, kind: str, lines: list[str]) -> None:
         if not lines:
             return
-        self._print_line(kind, lines[0], style=theme.MUTED)
+        self._print_line(kind, lines[0], label_style=_label_style(kind), text_style=_text_style(kind))
         for line in lines[1:]:
-            self._print_line("", line, style=theme.MUTED)
+            self._print_line("", line, label_style=theme.MUTED_BOLD, text_style=theme.SUBTLE)
 
-    def _print_line(self, label: str, message: str, *, style: str = theme.MUTED) -> None:
+    def _print_line(
+        self,
+        label: str,
+        message: str,
+        *,
+        label_style: str = theme.MUTED_BOLD,
+        text_style: str = theme.BODY,
+    ) -> None:
         grid = Table.grid(padding=(0, 1))
-        grid.add_column(style=theme.LABEL, width=9, no_wrap=True)
-        grid.add_column(style=style)
-        grid.add_row(label, message)
+        grid.add_column(style=label_style, width=9, no_wrap=True)
+        grid.add_column(style=text_style)
+        grid.add_row(Text(label, style=label_style), Text(message, style=text_style))
         self.console.print(grid)
 
     def _print_lines_panel(self, title: str, lines: list[str]) -> None:
         body: RenderableType
         if lines:
-            group = Group(*(Text(line) for line in lines))
+            group = Group(*(Text(line, style=theme.BODY) for line in lines))
             body = group
         else:
             body = Text("No data.", style=theme.MUTED)
@@ -534,3 +580,17 @@ def _truncate_preview(text: str, *, max_chars: int) -> str:
     if len(compact) <= max_chars:
         return compact
     return compact[: max_chars - 3].rstrip() + "..."
+
+
+def _label_style(kind: str) -> str:
+    if kind == "tool":
+        return theme.TOOL_BOLD
+    if kind in {"usage", "context"}:
+        return theme.WARNING_BOLD
+    return theme.MUTED_BOLD
+
+
+def _text_style(kind: str) -> str:
+    if kind == "tool":
+        return theme.BODY
+    return theme.SUBTLE

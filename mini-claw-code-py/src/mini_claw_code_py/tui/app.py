@@ -164,6 +164,32 @@ async def _handle_command(
             plan_mode=plan_mode,
             ui=ui,
         )
+    if prompt.startswith("/rename"):
+        parts = prompt.split(maxsplit=1)
+        if len(parts) != 2:
+            ui.print_usage("/rename <title>")
+            return True, agent, current_session, history, plan_mode
+        try:
+            current_session = store.rename(current_session, parts[1])
+        except ValueError as exc:
+            ui.print_usage(str(exc))
+            return True, agent, current_session, history, plan_mode
+        ui.print_renamed_session(current_session)
+        return True, agent, current_session, history, plan_mode
+    if prompt.startswith("/fork"):
+        current_session = _save_session(store, current_session, history, agent)
+        source_session = current_session
+        parts = prompt.split(maxsplit=1)
+        try:
+            current_session = store.fork(
+                current_session,
+                title=parts[1] if len(parts) == 2 else None,
+            )
+        except ValueError as exc:
+            ui.print_usage(str(exc))
+            return True, agent, current_session, history, plan_mode
+        ui.print_forked_session(source_session, current_session)
+        return True, agent, current_session, history, plan_mode
     if prompt == "/audit":
         ui.print_audit_log(agent)
         return True, agent, current_session, history, plan_mode
