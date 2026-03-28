@@ -93,6 +93,7 @@ def default_harness_config_paths(
     cwd: Path | None = None,
     home: Path | None = None,
     env: Mapping[str, str] | None = None,
+    config_path: Path | None = None,
 ) -> list[Path]:
     target_cwd = Path.cwd() if cwd is None else Path(cwd)
     target_home = Path.home() if home is None else Path(home)
@@ -113,6 +114,11 @@ def default_harness_config_paths(
         if not explicit_path.exists():
             raise FileNotFoundError(f"{CONFIG_PATH_ENV} points to a missing file: {explicit_path}")
         paths.append(explicit_path)
+    elif config_path is not None:
+        explicit_path = Path(config_path).expanduser().resolve()
+        if not explicit_path.exists():
+            raise FileNotFoundError(f"config_path points to a missing file: {explicit_path}")
+        paths.append(explicit_path)
 
     return paths
 
@@ -122,13 +128,19 @@ def load_harness_config(
     cwd: Path | None = None,
     home: Path | None = None,
     env: Mapping[str, str] | None = None,
+    config_path: Path | None = None,
 ) -> HarnessConfig:
     target_cwd = Path.cwd() if cwd is None else Path(cwd)
     target_home = Path.home() if home is None else Path(home)
     environ = os.environ if env is None else env
 
     config = default_harness_config(cwd=target_cwd, home=target_home)
-    for path in default_harness_config_paths(cwd=target_cwd, home=target_home, env=environ):
+    for path in default_harness_config_paths(
+        cwd=target_cwd,
+        home=target_home,
+        env=environ,
+        config_path=config_path,
+    ):
         raw = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError(f"config file must contain a JSON object: {path}")

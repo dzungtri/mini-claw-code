@@ -4,20 +4,14 @@ import asyncio
 from pathlib import Path
 
 from mini_claw_code_py import (
-    ChannelInputHandler,
-    DEFAULT_PLAN_PROMPT_TEMPLATE,
-    DEFAULT_SYSTEM_PROMPT_TEMPLATE,
     HarnessAgent,
+    HostedAgentFactory,
+    HostedAgentRegistry,
     Message,
     OpenRouterProvider,
-    SYSTEM_PROMPT_FILE_ENV,
     SessionRecord,
     SessionStore,
     UserInputRequest,
-    apply_harness_config,
-    load_harness_config,
-    load_prompt_template,
-    render_system_prompt,
 )
 
 from .console import ConsoleUI
@@ -29,25 +23,13 @@ def build_agent(
     cwd: Path,
     input_queue: "asyncio.Queue[UserInputRequest]",
 ) -> HarnessAgent:
-    system_prompt = render_system_prompt(
-        load_prompt_template(
-            SYSTEM_PROMPT_FILE_ENV,
-            DEFAULT_SYSTEM_PROMPT_TEMPLATE,
-        ),
-        cwd=cwd,
-    )
-    plan_prompt = render_system_prompt(
-        DEFAULT_PLAN_PROMPT_TEMPLATE,
-        cwd=cwd,
-    )
-    agent = HarnessAgent(provider).system_prompt(system_prompt).plan_prompt(plan_prompt)
-    config = load_harness_config(cwd=cwd, home=Path.home())
-    apply_harness_config(
-        agent,
-        config,
-        handler=ChannelInputHandler(input_queue),
-    )
-    return agent
+    registry = HostedAgentRegistry.discover_default(cwd=cwd, home=Path.home())
+    definition = registry.require("superagent")
+    return HostedAgentFactory(
+        provider=provider,
+        home=Path.home(),
+        input_queue=input_queue,
+    ).build(definition)
 
 
 async def run_cli(*, cwd: Path | None = None) -> None:
@@ -151,6 +133,9 @@ async def _handle_command(
         return True, agent, current_session, history, plan_mode
     if prompt == "/subagents":
         ui.print_subagents(agent)
+        return True, agent, current_session, history, plan_mode
+    if prompt == "/agents":
+        ui.print_agents(HostedAgentRegistry.discover_default(cwd=workspace, home=Path.home()), current_agent="superagent")
         return True, agent, current_session, history, plan_mode
     if prompt == "/session":
         ui.print_session_status(current_session)

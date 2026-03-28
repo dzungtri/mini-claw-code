@@ -64,6 +64,7 @@ def test_tui_print_help_lists_core_commands() -> None:
     assert "/artifacts" in rendered
     assert "/mcp" in rendered
     assert "/subagents" in rendered
+    assert "/agents" in rendered
     assert "/fork" in rendered
     assert "/rename <title>" in rendered
     assert "/resume <id>" in rendered
@@ -164,6 +165,53 @@ def test_tui_handle_command_subagents_prints_registry(tmp_path: Path) -> None:
     assert handled is True
     assert "Subagents" in rendered
     assert "packaging-helper" in rendered
+
+
+def test_tui_handle_command_agents_prints_hosted_registry(tmp_path: Path) -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+    store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    current_session = store.create(cwd=tmp_path)
+    (tmp_path / ".agents.json").write_text(
+        (
+            '{\n'
+            '  "agents": {\n'
+            '    "reviewer": {\n'
+            '      "description": "Review repository changes.",\n'
+            '      "workspace_root": ".",\n'
+            '      "default_channels": ["cli"]\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    class DummyAgent:
+        def subagent_profile_registry(self) -> SubagentProfileRegistry:
+            return SubagentProfileRegistry({})
+
+    async def run() -> tuple[bool, object, object, list[Message], bool]:
+        return await _handle_command(
+            prompt="/agents",
+            provider=None,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            input_queue=asyncio.Queue(),
+            store=store,
+            agent=DummyAgent(),  # type: ignore[arg-type]
+            current_session=current_session,
+            history=[],
+            plan_mode=False,
+            ui=ui,
+        )
+
+    handled, _, _, _, _ = asyncio.run(run())
+
+    rendered = console.export_text()
+    assert handled is True
+    assert "Hosted Agents" in rendered
+    assert "superagent" in rendered
+    assert "reviewer" in rendered
 
 
 def test_tui_summarize_history_message_formats_assistant_tool_calls() -> None:

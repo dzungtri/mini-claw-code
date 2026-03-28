@@ -79,7 +79,20 @@ from .memory import (
 from .mcp import MCPCatalog, MCPPromptEntry, MCPRegistry, MCPResourceEntry, MCPServer, MCPToolAdapter
 from .mcp import default_mcp_config_paths, parse_mcp_config
 from .mock import MockProvider
-from .os import EventEnvelope, MessageBus, MessageEnvelope, create_envelope_id, create_trace_id
+from .os import (
+    AGENT_REGISTRY_FILE_NAME,
+    EventEnvelope,
+    HostedAgentDefinition,
+    HostedAgentFactory,
+    HostedAgentRegistry,
+    MessageBus,
+    MessageEnvelope,
+    create_envelope_id,
+    create_trace_id,
+    default_agent_registry_paths,
+    default_superagent_definition,
+    parse_agent_registry,
+)
 from .planning import PlanAgent
 from .prompts import (
     DEFAULT_PLAN_PROMPT_TEMPLATE,
@@ -181,6 +194,7 @@ from .workspace import (
 __all__ = [
     "ARCHIVED_CONTEXT_CLOSE",
     "ARCHIVED_CONTEXT_OPEN",
+    "AGENT_REGISTRY_FILE_NAME",
     "ARTIFACT_MANIFEST_PATH",
     "AgentDone",
     "AgentError",
@@ -222,6 +236,9 @@ __all__ = [
     "HARNESS_CORE_PROMPT_SECTION",
     "HarnessConfig",
     "HarnessAgent",
+    "HostedAgentDefinition",
+    "HostedAgentFactory",
+    "HostedAgentRegistry",
     "InputHandler",
     "Message",
     "MessageBus",
@@ -249,6 +266,8 @@ __all__ = [
     "Provider",
     "create_envelope_id",
     "create_trace_id",
+    "default_agent_registry_paths",
+    "default_superagent_definition",
     "ReadTool",
     "Skill",
     "SkillRegistry",
@@ -335,6 +354,7 @@ __all__ = [
     "render_harness_subagent_prompt_section",
     "render_system_prompt",
     "render_workspace_prompt_section",
+    "parse_agent_registry",
     "render_context_durability_prompt_section",
     "render_harness_prompt_section",
     "resolve_workspace_path",
