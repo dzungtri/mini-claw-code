@@ -19,6 +19,15 @@ We want one normalized message format that can represent:
 
 That envelope should be transport-neutral.
 
+For most user-facing channels, the default target should be:
+
+- `superagent`
+
+Direct targeting of peer agents should be treated as:
+
+- an advanced routing feature
+- or an internal/system envelope
+
 ## The Smallest Good Shape
 
 The envelope should include:
@@ -27,6 +36,8 @@ The envelope should include:
 - `source`
 - `target_agent`
 - `thread_key`
+- `trace_id`
+- `parent_run_id`
 - `kind`
 - `content`
 - `metadata`
@@ -40,12 +51,22 @@ Example:
   "source": "cli",
   "target_agent": "superagent",
   "thread_key": "cli:local",
+  "trace_id": "trace_abc123",
+  "parent_run_id": null,
   "kind": "user_message",
   "content": "Build feature A",
   "metadata": {},
   "created_at": "2026-03-28T12:00:00Z"
 }
 ```
+
+In the first OS slice, `target_agent` should usually be `superagent`.
+
+Later, the OS can support:
+
+- explicit peer-agent routing
+- team-lead routing
+- background service routing
 
 ## Why A Bus Matters
 
@@ -82,6 +103,8 @@ The first bus should:
 - preserve ordering within one thread
 - allow different sources to share one pipeline
 - remain simple enough for the tutorial
+- preserve `target_agent` and `thread_key` without transport-specific rewriting
+- preserve correlation fields such as `trace_id`
 
 It does **not** need:
 
@@ -99,6 +122,7 @@ The first version should include:
 - `InboundBus`
 - `OutboundBus`
 - `EventEnvelope`
+- trace-aware envelopes
 
 The key contract is:
 

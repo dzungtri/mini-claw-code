@@ -51,3 +51,4 @@
 - [Chapter 43: Background Turns with Heartbeat and Cron](./ch43-background-turns-heartbeat-cron.md)
 - [Chapter 44: Channels and Agent Teams](./ch44-channels-agent-teams.md)
 - [Chapter 45: Skill Hubs, Trust, and Installation](./ch45-skill-hubs-trust-installation.md)
+- [Chapter 46: Traceability, Monitoring, and Operator Controls](./ch46-traceability-monitoring-operator-controls.md)

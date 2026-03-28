@@ -25,6 +25,14 @@ Background services should:
 - target a specific agent or team
 - publish into the same OS bus
 - remain decoupled from the harness
+- emit observable service events
+
+If a service targets a team, the OS should resolve that to:
+
+- the team lead
+- or another explicit front-door agent for that team
+
+The runner should still receive one concrete target agent.
 
 They should **not**:
 
@@ -46,3 +54,5 @@ service -> envelope -> bus -> runner -> harness turn
 ```
 
 That is the clean architecture.
+
+And each service-triggered turn should still be traceable as one normal run inside the OS.

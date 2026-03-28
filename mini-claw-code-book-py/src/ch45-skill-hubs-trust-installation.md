@@ -21,6 +21,7 @@ The Agent OS should:
 - review or scan skills
 - install and pin skills
 - manage trust state
+- decide which agents or teams may use which installed skills
 
 That boundary is important.
 
@@ -42,6 +43,13 @@ The first skill-hub layer should support:
 
 And it should require explicit approval for installation.
 
+It should also support scope decisions such as:
+
+- user-wide skill
+- project skill
+- agent-specific enablement
+- team-specific enablement
+
 ## Architecture
 
 The first skill-hub modules should be:
@@ -52,6 +60,19 @@ The first skill-hub modules should be:
 - `SkillLockfile`
 - `SkillTrust`
 
+And later likely:
+
+- `SkillPolicy`
+- `SkillAssignments`
+- install audit history
+
 That gives the OS a clean skill supply-chain boundary.
 
 The harness then consumes only installed local skills.
+
+Remote skill install flows should also be fully traceable:
+
+- who searched
+- who approved
+- what version was installed
+- where it was assigned

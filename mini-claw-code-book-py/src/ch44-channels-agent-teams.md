@@ -14,6 +14,15 @@ We want:
 
 The user should usually talk to one front door, not directly to every internal agent.
 
+That means the default user-facing rule should be:
+
+- channels route normal user turns to `superagent`
+
+Direct routing to peer agents should be treated as:
+
+- an advanced admin feature
+- or an internal system capability
+
 ## Channels
 
 The first channels should be:
@@ -27,7 +36,9 @@ Each channel should know:
 - how to receive input
 - how to send output
 - how to identify the thread
-- how to default or choose a target agent
+- how to default a target agent
+
+For the first version, that default target agent should usually be `superagent`.
 
 ## Teams
 
@@ -48,6 +59,8 @@ The user should see:
 
 not raw internal agent chatter by default.
 
+Operators, however, should later be able to inspect the raw execution state when needed.
+
 ## Architecture
 
 The first team-aware channel flow should be:
@@ -61,3 +74,8 @@ user channel
 ```
 
 That keeps the system understandable from the outside while still allowing rich backend coordination.
+
+So the UI model should likely split into:
+
+- user view
+- operator view

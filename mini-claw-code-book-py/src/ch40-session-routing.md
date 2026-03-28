@@ -32,6 +32,19 @@ That is better than:
 
 because several hosted agents may interact with the same external thread over time.
 
+For the first implementation, the router should stay narrow:
+
+- route external conversation continuity to harness sessions
+
+It should **not** become the store for:
+
+- goals
+- tasks
+- team membership
+- planning state
+
+Those belong in higher OS stores.
+
 ## Requirements
 
 The first session router should:
@@ -40,6 +53,7 @@ The first session router should:
 - create a new session when none exists
 - work with one or many hosted agents
 - remain local and file-backed
+- stay independent from team/task logic
 
 It does **not** need:
 

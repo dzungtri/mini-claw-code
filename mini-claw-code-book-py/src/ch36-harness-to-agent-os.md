@@ -33,6 +33,7 @@ That matters, because once we introduce:
 - message buses
 - background services
 - ACP
+- traceability and monitoring
 
 the architecture changes again.
 
@@ -47,7 +48,212 @@ So the goal of this chapter is:
 - define the front-door `superagent` role
 - define teams, goals, tasks, and runs
 - place ACP at the right architectural boundary
+- make observability a first-class requirement
 - design the next folder and module shape
+
+## Core Vocabulary
+
+Before we continue, we need one stable vocabulary.
+
+If these terms drift from chapter to chapter, the whole Agent OS design becomes confusing.
+
+So from here onward, this book will use the following meanings.
+
+### `HarnessAgent`
+
+One turn runtime.
+
+It is responsible for:
+
+- prompt assembly
+- tool execution
+- memory
+- context handling
+- subagents
+- control plane
+- session restore/save
+
+It is **not** the whole Agent OS.
+
+### `Hosted Agent`
+
+A named agent runtime managed by the OS.
+
+Examples:
+
+- `superagent`
+- `pipi`
+- `reviewer`
+
+A hosted agent is usually built from a harness definition plus OS-level routing.
+
+### `Subagent`
+
+A temporary delegated child run inside one harness turn.
+
+A subagent is:
+
+- short-lived
+- bounded
+- owned by one parent harness run
+
+A subagent is **not** a peer hosted agent.
+
+### `Thread Key`
+
+The external routing identity.
+
+Examples:
+
+- `cli:local`
+- `telegram:123456`
+- `ws:client-42`
+
+The OS uses this to identify the external conversation thread.
+
+### `Session ID`
+
+The internal persisted harness conversation identity.
+
+This is the thing Chapter 29 stores and restores.
+
+So:
+
+- `thread_key` is external
+- `session_id` is internal
+
+The OS maps:
+
+```text
+(target_agent, thread_key) -> session_id
+```
+
+### `Envelope`
+
+A normalized OS message object.
+
+It is the thing that moves through the message bus.
+
+An envelope should carry enough information to route one turn safely.
+
+### `Message Bus`
+
+The transport-neutral internal pipeline that carries envelopes and events between OS components.
+
+The bus does not reason.
+
+It only moves work.
+
+### `Agent Registry`
+
+The OS store that knows which hosted agents exist and how to build them.
+
+It answers:
+
+- what agents exist?
+- how are they configured?
+
+### `Team Registry`
+
+The OS store that knows how hosted agents are organized into working groups.
+
+It answers:
+
+- which agents belong to which team?
+- who is the lead?
+- what is the team mission?
+
+### `Goal`
+
+A top-level user or system objective.
+
+Examples:
+
+- build feature A
+- launch campaign B
+- investigate outage C
+
+### `Task`
+
+A unit of work assigned to one agent.
+
+Examples:
+
+- implement endpoint
+- review PR
+- draft landing page copy
+
+### `Run`
+
+One execution attempt of a task or turn.
+
+A run is the thing we should later trace and monitor.
+
+### `Channel`
+
+A user-facing or system-facing communication adapter.
+
+Examples:
+
+- CLI
+- dashboard
+- Telegram
+- WebSocket
+
+A channel knows how to receive and send messages.
+
+It does not own the harness runtime.
+
+### `Gateway`
+
+A protocol-facing boundary for external systems.
+
+Examples:
+
+- ACP
+- future HTTP/WebSocket control APIs
+
+Gateways are richer than simple channels because they often manage sessions, protocol capabilities, and structured updates.
+
+### `Background Service`
+
+A non-user producer of work.
+
+Examples:
+
+- cron
+- heartbeat
+- alert ingestion
+
+Background services should create envelopes and publish them into the OS.
+
+They should not bypass the runner.
+
+### `Operator View`
+
+The internal control and monitoring surface for humans who operate the OS.
+
+This is different from the normal user view.
+
+An operator view should expose:
+
+- runs
+- traces
+- logs
+- task state
+- cancellation controls
+
+### `User View`
+
+The normal end-user surface.
+
+The user should mostly see:
+
+- one conversation
+- progress summaries
+- deliverables
+
+Not raw internal system state by default.
 
 ## The Core Distinction
 
@@ -160,6 +366,9 @@ These should belong to the future Agent OS layer:
 - heartbeat triggers
 - many hosted agents
 - agent-to-agent routing
+- tracing
+- monitoring
+- operator controls
 
 These are not really “agent thinking” concerns.
 
@@ -415,6 +624,8 @@ channel / gateway / background service
       one selected hosted HarnessAgent
                 ↓
  tools / subagents / workspace / MCP / memory
+                ↓
+      traces / logs / metrics / controls
 ```
 
 That is much closer to real systems than:
@@ -471,6 +682,8 @@ It includes:
 - gateways
 - schedulers
 - heartbeat
+- tracing and monitoring
+- operator controls
 
 ### Ring 4: Agent Network
 
@@ -1042,6 +1255,7 @@ I would continue like this:
 6. `Chapter 42: ACP Gateway and Session Modes`
 7. `Chapter 43: Background Turns with Heartbeat and Cron`
 8. `Chapter 44: Channels and Agent Teams`
+9. `Chapter 46: Traceability, Monitoring, and Operator Controls`
 
 That order is clean because it moves from:
 

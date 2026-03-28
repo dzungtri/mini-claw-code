@@ -54,6 +54,15 @@ Optional fields:
 - `control_profile`
 - `remote_endpoint`
 
+Here `harness_profile` should mean:
+
+- either a named runtime profile
+- or a pointer to a concrete harness config source
+
+The important design rule is that the agent registry does not store a live runtime object.
+
+It stores the information needed to build one.
+
 ## Requirements
 
 The first registry should:

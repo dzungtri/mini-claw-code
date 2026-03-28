@@ -1,0 +1,222 @@
+# Chapter 46: Traceability, Monitoring, and Operator Controls
+
+An Agent OS is not complete if it cannot be observed and controlled.
+
+This is one of the most important requirements in the whole system.
+
+If we can run:
+
+- many agents
+- many teams
+- many goals
+- many sessions
+- many background services
+
+then we also need to be able to:
+
+- inspect what is happening
+- understand why it happened
+- find what is stuck
+- stop or cancel unsafe work
+
+In other words:
+
+an Agent OS needs something like a task manager.
+
+## The Core Requirement
+
+Everything important in the OS should be traceable.
+
+That includes:
+
+- envelopes
+- goals
+- tasks
+- runs
+- sessions
+- agent handoffs
+- tool executions
+- subagent calls
+- peer-agent calls
+- skill installs
+- background service triggers
+
+If something changes the system, operators should be able to answer:
+
+- what happened?
+- when did it happen?
+- who triggered it?
+- which agent ran it?
+- which goal and task did it belong to?
+- what output or side effect did it produce?
+
+## The Three Pillars
+
+### 1. Tracing
+
+Tracing answers:
+
+- what execution path did this run follow?
+
+At the OS level, that means:
+
+- envelope -> runner -> harness turn -> tools -> results
+
+Useful identifiers:
+
+- `trace_id`
+- `run_id`
+- `task_id`
+- `goal_id`
+- `session_id`
+- `thread_key`
+- `target_agent`
+
+### 2. Monitoring
+
+Monitoring answers:
+
+- what is the current health and state of the system?
+
+Examples:
+
+- active runs
+- blocked runs
+- average turn latency
+- queue depth
+- token usage
+- tool failure rate
+- agent availability
+- background job health
+
+### 3. Operator Controls
+
+Operator controls answer:
+
+- what can a human do when the system is unhealthy or unsafe?
+
+Examples:
+
+- inspect a run
+- inspect recent events
+- cancel a run
+- pause a team
+- disable a channel
+- disable a remote agent
+- review install history
+
+## User View vs Operator View
+
+This distinction is important.
+
+### User View
+
+The user should mostly see:
+
+- one conversation
+- goal progress
+- team progress
+- deliverables
+
+### Operator View
+
+The operator should be able to see:
+
+- active goals
+- active tasks
+- active runs
+- agent ownership
+- trace ids
+- session ids
+- logs
+- failure state
+- cancel / pause controls
+
+Those are different surfaces.
+
+Do not confuse them.
+
+## The Minimum Trace Model
+
+The first implementation should keep this small.
+
+A traceable run should include:
+
+- `trace_id`
+- `run_id`
+- `goal_id` optional
+- `task_id` optional
+- `session_id`
+- `thread_key`
+- `target_agent`
+- `source`
+- `status`
+- `started_at`
+- `finished_at`
+
+That is enough to correlate most system behavior.
+
+## The Minimum Operator Surfaces
+
+The first operator-facing features should be:
+
+- list active runs
+- list recent finished runs
+- inspect one run
+- inspect recent events for one run
+- cancel one active run
+
+That already gives the OS a real operational backbone.
+
+## Why This Must Be A First-Class Requirement
+
+Without tracing and monitoring, multi-agent systems become black boxes.
+
+You can see that something is wrong, but you cannot see:
+
+- which team is blocked
+- which agent is looping
+- which session triggered the issue
+- which remote skill install changed behavior
+
+That is unacceptable for a real OS.
+
+So observability is not a later nice-to-have.
+
+It is part of the base design.
+
+## Recommended Architecture
+
+The first observability layer should likely include:
+
+- `TraceRecord`
+- `RunStatus`
+- `RunRegistry`
+- `OperatorEvent`
+- `OperatorConsole` or later dashboard views
+
+And the OS should propagate trace metadata through:
+
+- envelopes
+- runner
+- session routing
+- harness events
+- background services
+
+## Later Direction
+
+Later, this can grow into:
+
+- OpenTelemetry export
+- distributed traces across ACP
+- replay tools
+- anomaly detection
+- alerting
+
+But the first local version should stay simple:
+
+- explicit ids
+- explicit run records
+- explicit operator controls
+
+That is enough to keep the system understandable while we build it.

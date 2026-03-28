@@ -52,6 +52,17 @@ A unit of work assigned to one agent.
 
 One execution attempt of a task.
 
+A run should later expose:
+
+- `run_id`
+- `task_id`
+- `agent_name`
+- `session_id`
+- `trace_id`
+- `status`
+- `started_at`
+- `finished_at`
+
 ## Requirements
 
 The first team model should:
@@ -61,6 +72,19 @@ The first team model should:
 - let team leads create member tasks
 - track task status
 - support later UI views
+- support traceable run history
+
+The important scope limit is:
+
+- first version: one goal belongs to one primary team
+
+Later, the OS may support:
+
+- one goal spanning several teams
+- cross-team dependencies
+- shared milestones
+
+But that should not be the first implementation.
 
 Statuses should stay simple:
 
@@ -78,6 +102,8 @@ The first OS state stores should include:
 - `TaskStore`
 - `RunStore`
 
+And the run store should become the main operator-visible execution table later.
+
 The key contracts are:
 
 ```python
@@ -86,3 +112,8 @@ task_store.assign(goal_id=goal_id, team_id="product-a", agent_name="frontend-dev
 ```
 
 This gives the OS a management model, not just a transport model.
+
+It also keeps team state above session routing:
+
+- goals and tasks belong to OS coordination
+- sessions belong to harness execution continuity

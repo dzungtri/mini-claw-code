@@ -15,6 +15,7 @@ ACP gives us:
 - client capabilities
 - session config options
 - mode switching
+- better operator visibility into remote sessions
 
 That makes it a strong fit for:
 
@@ -33,6 +34,13 @@ The first ACP gateway should:
 - support session config options like:
   - mode
   - model
+- preserve session and trace identity across the protocol boundary
+
+For the first version, ACP should target one hosted agent per session.
+
+That keeps the mapping clean:
+
+- ACP session -> target agent -> session router -> harness session
 
 It does **not** need:
 
