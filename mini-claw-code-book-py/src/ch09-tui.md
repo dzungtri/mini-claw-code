@@ -58,9 +58,10 @@ The updated Python version now does the same with an evented terminal surface.
 
 Early chapters use a small Rich-based loop.
 
-Later chapters keep the same backend ideas but move the real `make cli` surface
-onto a Textual app, because session control, streaming, and slash commands grow
-beyond what a simple line-oriented loop should own.
+Later chapters keep the same backend ideas and still grow the terminal surface,
+but the current default `make cli` path remains the Rich/console work UI. That
+keeps the main user-facing path simple and easy to read, while the operator
+surface can use a heavier TUI when it actually benefits from one.
 
 ```mermaid
 flowchart LR
@@ -88,9 +89,9 @@ The better design is:
 - `examples/cli.py`
   - thin compatibility wrapper only
 - `src/mini_claw_code_py/tui/app.py`
-  - command/session backend helpers and compatibility logic
+  - command/session backend helpers and the default console `make cli` path
 - `src/mini_claw_code_py/tui/work_app.py`
-  - the Textual work console used by `make cli`
+  - an internal Textual work-console prototype, not the default CLI path
 - `src/mini_claw_code_py/tui/console.py`
   - shared Rich rendering helpers and fallback console formatting
 - `src/mini_claw_code_py/tui/theme.py`
@@ -113,10 +114,10 @@ It is part of the runtime surface.
 
 The project now uses both layers deliberately:
 
-- Rich helpers for simple rendering logic and testable text formatting
-- Textual for the real full-screen work console and operator console
+- Rich helpers for the default work console and testable text formatting
+- Textual for the operator console, where panels, focus, and live dashboards matter more
 
-That is a better long-term split than forcing either tool to do everything.
+That is a better split than forcing the main work console onto a heavier UI stack too early.
 
 The tutorial remains readable because the backend runtime logic still lives in
 normal Python modules, while the TUI layer stays thin around that runtime.
@@ -134,6 +135,6 @@ If you want a richer interface, the natural next step is integrating:
 
 - richer markdown rendering for final agent answers
 - arrow-key menus for interactive selection
-- `textual` for a full-screen app
+- `textual` for optional richer work surfaces or future full-screen app variants
 - arrow-key option selection for `ask_user`
 - multi-pane history and tool activity views

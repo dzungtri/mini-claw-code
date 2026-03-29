@@ -1,4 +1,5 @@
-from .work_app import run_cli, WorkApp
+from .app import run_cli
+from .work_app import WorkApp
 from .console import (
     ConsoleUI,
     command_rows,

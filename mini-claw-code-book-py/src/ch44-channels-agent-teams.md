@@ -224,7 +224,6 @@ The work console now resolves its front door from the channel system.
 In code, that lives in:
 
 - [`app.py`](/Users/dzung/mini-claw-code/mini-claw-code-py/src/mini_claw_code_py/tui/app.py)
-- [`work_app.py`](/Users/dzung/mini-claw-code/mini-claw-code-py/src/mini_claw_code_py/tui/work_app.py)
 
 The `cli` route is computed through:
 

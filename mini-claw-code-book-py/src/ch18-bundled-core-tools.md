@@ -373,7 +373,7 @@ Those should remain as earlier simple examples.
 The harness should instead get one evolving app surface:
 
 ```text
-src/mini_claw_code_py/tui/work_app.py
+src/mini_claw_code_py/tui/app.py
 ```
 
 The `examples/cli.py` file may still exist as a thin wrapper, but the real app

@@ -194,8 +194,8 @@ And usage should always be shown together with money:
 For this project, the best terminal technology choice for the operator console is:
 
 - `Textual` for the operator/admin TUI
-- `Textual` for the work console too
-- `Rich` remains useful as a rendering helper layer
+- `Rich` for the default work console
+- `Rich` also remains useful as a rendering helper layer
 
 Why `Textual` is the right fit:
 
@@ -220,12 +220,8 @@ Why not choose a lower-level alternative first:
 So the clean design is:
 
 - keep backend rendering helpers small and reusable
-- run both `make cli` and `make ops` on Textual surfaces
-
-That gives the project one real TUI stack for both:
-
-- user-facing work
-- operator-facing monitoring and control
+- keep `make cli` on the lighter console path
+- run `make ops` on a Textual surface where the richer TUI actually pays off
 
 Textual is also a better fit for the interaction model we want:
 
