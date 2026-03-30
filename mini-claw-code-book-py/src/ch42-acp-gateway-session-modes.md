@@ -171,3 +171,27 @@ That means:
 So ACP wraps the OS.
 
 It does not replace it.
+
+## Why This Chapter Also Matters For Telegram
+
+Later, when we add the first real Telegram runtime, it should not invent a second routing system.
+
+It should reuse this same gateway backbone:
+
+- external channel runtime creates or reuses a gateway session
+- gateway session selects target agent and thread key
+- gateway forwards the message into the runner
+- the runner reuses the routed harness session
+
+That means the real Telegram runtime is still conceptually a Chapter 42 feature:
+
+- channel adapter outside
+- gateway session in the middle
+- harness execution inside
+
+This is exactly the kind of boundary we want for future channels too:
+
+- Telegram
+- web chat
+- desktop app
+- later ACP clients

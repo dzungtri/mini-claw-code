@@ -1,7 +1,7 @@
 UV ?= uv
 PYTHONPATH := src
 
-.PHONY: help install test chat tui cli ops
+.PHONY: help install test chat tui cli ops telegram
 
 help:
 	@printf "Targets:\n"
@@ -11,6 +11,7 @@ help:
 	@printf "  make tui      - start the TUI\n"
 	@printf "  make cli      - start the harness CLI\n"
 	@printf "  make ops      - start the operator console\n"
+	@printf "  make telegram - start the Telegram channel runtime (set TELEGRAM_BOT_TOKEN)\n"
 
 install:
 	$(UV) pip install -e ".[dev]"
@@ -29,3 +30,6 @@ cli:
 
 ops:
 	PYTHONPATH=$(PYTHONPATH) $(UV) run python -m mini_claw_code_py.ops
+
+telegram:
+	PYTHONPATH=$(PYTHONPATH) $(UV) run python -m mini_claw_code_py.telegram --token "$${TELEGRAM_BOT_TOKEN}" --channel "$${TELEGRAM_CHANNEL:-telegram}" --cwd .

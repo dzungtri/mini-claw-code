@@ -259,6 +259,186 @@ This is useful because the user can see:
 - which teams are configured
 - which work binding is attached to the current session
 
+## Management Commands
+
+At this point, the work console is no longer read-only for channel and team setup.
+
+The first user-side management slice is intentionally project-scoped.
+
+It writes to the local configuration files in the current workspace:
+
+- `.agents.json`
+- `.teams.json`
+- `.channels.json`
+- `.mcp.json`
+
+The first concrete commands are:
+
+- `/agent add <name> --workspace <path> --description "..."`
+- `/team add <name> --lead <agent> [--member <name>] ...`
+- `/channel add <name> (--agent <name> | --team <name>) ...`
+- `/mcp add <stdio|http|sse> <name> ...`
+
+This keeps the UX simple:
+
+- the user can bootstrap a project locally
+- the config remains visible and editable
+- the runtime still discovers those files through the same registries
+
+That gives us a good tutorial balance:
+
+- real management commands
+- still plain JSON on disk
+- no hidden database or heavy admin layer yet
+
+## Routing Commands
+
+The work console also needs a way to change the active front door without editing config files by hand.
+
+The first route-control command is:
+
+- `/use <agent|team|channel> <name>`
+
+Examples:
+
+```text
+/use agent reviewer
+/use team marketing
+/use channel telegram
+```
+
+This changes the current front-door route in a narrow and predictable way:
+
+- `/use agent ...`
+  switches the current session to that hosted agent on the local CLI thread
+- `/use team ...`
+  resolves the team lead and routes to that lead on the local CLI thread
+- `/use channel ...`
+  resolves both the target agent and the thread prefix from the channel definition
+
+This is intentionally not a full routing console yet.
+
+It is just enough to make the user-side Agent OS path real.
+
+## Real Telegram Runtime
+
+The earlier version of this chapter only showed a `telegram` channel as metadata.
+
+Now we add the first real channel runtime.
+
+The implementation lives in:
+
+- [`telegram.py`](/Users/dzung/mini-claw-code/mini-claw-code-py/src/mini_claw_code_py/os/telegram.py)
+- [`mini_claw_code_py.telegram`](/Users/dzung/mini-claw-code/mini-claw-code-py/src/mini_claw_code_py/telegram/__main__.py)
+
+This runtime:
+
+- long-polls Telegram with `getUpdates`
+- maps `chat_id` into a stable Agent OS `thread_key`
+- opens or reuses a gateway session
+- forwards the text into the same OS gateway/runner path
+- sends the reply back to Telegram with `sendMessage`
+
+The important design rule is:
+
+- Telegram does **not** get its own special execution engine
+- it is just another channel feeding the same Agent OS backbone
+
+So the runtime path becomes:
+
+```text
+Telegram chat
+  -> TelegramChannelRuntime
+  -> GatewayService
+  -> MessageBus inbound
+  -> TurnRunner
+  -> HarnessAgent
+  -> outbound reply
+  -> Telegram sendMessage
+```
+
+## Running Telegram
+
+The first runtime is started separately from the work console:
+
+```bash
+TELEGRAM_BOT_TOKEN=... make telegram
+```
+
+By default it uses:
+
+- channel name: `telegram`
+
+That means the recommended setup is:
+
+1. create a `telegram` channel in `.channels.json`
+2. point it to a hosted agent or team
+3. start the runtime with a bot token
+
+Example channel:
+
+```json
+{
+  "channels": {
+    "telegram": {
+      "description": "Telegram support channel.",
+      "default_team": "support",
+      "thread_prefix": "tg"
+    }
+  }
+}
+```
+
+Example team:
+
+```json
+{
+  "teams": {
+    "support": {
+      "description": "Support and triage team.",
+      "lead_agent": "support-lead",
+      "member_agents": ["support-lead", "triage-bot"]
+    }
+  }
+}
+```
+
+## Token Handling
+
+For the first slice, we keep token handling deliberately simple:
+
+- the bot token is supplied only when the runtime connects
+- it is not stored in `.channels.json`
+
+That keeps channel config about routing, not secrets.
+
+Later chapters can add:
+
+- secret managers
+- per-channel credentials
+- operator-managed channel connections
+
+## Scope Limits
+
+This first Telegram runtime is intentionally narrow.
+
+It supports:
+
+- text messages
+- long polling
+- stable session reuse per chat
+- outbound text replies
+
+It does not yet add:
+
+- webhook hosting
+- media handling
+- callback buttons
+- channel-specific auth policies
+- operator-managed connect/disconnect flows
+
+That is enough for the first real external channel.
+
 ## Architecture Snapshot
 
 ```text

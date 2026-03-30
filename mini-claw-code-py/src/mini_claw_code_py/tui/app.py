@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import shlex
 from pathlib import Path
 
 from mini_claw_code_py import (
@@ -26,6 +27,11 @@ from mini_claw_code_py import (
     default_os_state_root,
     default_route_store,
 )
+from mini_claw_code_py.mcp import MCPServer
+from mini_claw_code_py.os.agent_registry import HostedAgentDefinition
+from mini_claw_code_py.os.channels import ChannelDefinition
+from mini_claw_code_py.os.management import add_channel, add_hosted_agent, add_mcp_server, add_team
+from mini_claw_code_py.os.work import TeamDefinition
 
 from .console import ConsoleUI
 
@@ -221,6 +227,32 @@ async def _handle_command(
     if prompt == "/mcp":
         ui.print_mcp(agent)
         return True, agent, current_route, current_session, history, plan_mode
+    if prompt.startswith("/mcp add"):
+        try:
+            path, server = _add_mcp_command(prompt, cwd=workspace)
+        except Exception as exc:
+            ui.print_usage(str(exc))
+            return True, agent, current_route, current_session, history, plan_mode
+        await agent.flush_memory_updates()
+        ui.drain_notice_queue(agent.notice_queue())
+        agent = build_agent(
+            provider,
+            cwd=workspace,
+            input_queue=input_queue,
+            target_agent=current_route.target_agent,
+        )
+        history = store.restore_into_agent(agent, current_session)
+        ui.print_rendered_text(
+            "MCP Added",
+            "\n".join(
+                [
+                    f"name={server.name}",
+                    f"transport={server.transport}",
+                    f"config={path}",
+                ]
+            ),
+        )
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/subagents":
         ui.print_subagents(agent)
         return True, agent, current_route, current_session, history, plan_mode
@@ -230,11 +262,66 @@ async def _handle_command(
             current_agent=current_route.target_agent,
         )
         return True, agent, current_route, current_session, history, plan_mode
+    if prompt.startswith("/agent add"):
+        try:
+            path, definition = _add_agent_command(prompt, cwd=workspace)
+        except Exception as exc:
+            ui.print_usage(str(exc))
+            return True, agent, current_route, current_session, history, plan_mode
+        ui.print_rendered_text(
+            "Agent Added",
+            "\n".join(
+                [
+                    f"name={definition.name}",
+                    f"workspace={definition.workspace_root}",
+                    f"channels={', '.join(definition.default_channels)}",
+                    f"config={path}",
+                ]
+            ),
+        )
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/channels":
         ui.print_channels(ChannelRegistry.discover_default(cwd=workspace, home=Path.home()))
         return True, agent, current_route, current_session, history, plan_mode
+    if prompt.startswith("/channel add"):
+        try:
+            path, definition = _add_channel_command(prompt, cwd=workspace)
+        except Exception as exc:
+            ui.print_usage(str(exc))
+            return True, agent, current_route, current_session, history, plan_mode
+        ui.print_rendered_text(
+            "Channel Added",
+            "\n".join(
+                [
+                    f"name={definition.name}",
+                    f"target={definition.default_target_agent or f'team:{definition.default_team}'}",
+                    f"thread_prefix={definition.thread_prefix}",
+                    f"config={path}",
+                ]
+            ),
+        )
+        return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/teams":
         ui.print_teams(TeamRegistry.discover_default(cwd=workspace, home=Path.home()))
+        return True, agent, current_route, current_session, history, plan_mode
+    if prompt.startswith("/team add"):
+        try:
+            path, definition = _add_team_command(prompt, cwd=workspace)
+        except Exception as exc:
+            ui.print_usage(str(exc))
+            return True, agent, current_route, current_session, history, plan_mode
+        ui.print_rendered_text(
+            "Team Added",
+            "\n".join(
+                [
+                    f"name={definition.name}",
+                    f"lead={definition.lead_agent}",
+                    f"members={', '.join(definition.member_agents)}",
+                    f"workspace={definition.workspace_root or workspace}",
+                    f"config={path}",
+                ]
+            ),
+        )
         return True, agent, current_route, current_session, history, plan_mode
     if prompt == "/skills":
         ui.print_rendered_text("Skills", _skill_hub_manager(workspace).render())
@@ -321,6 +408,28 @@ async def _handle_command(
     if prompt == "/runs":
         ui.print_runs(runs)
         return True, agent, current_route, current_session, history, plan_mode
+    if prompt.startswith("/use "):
+        try:
+            target_agent, thread_key, summary = _resolve_route_command(prompt, cwd=workspace)
+        except Exception as exc:
+            ui.print_usage(str(exc))
+            return True, agent, current_route, current_session, history, plan_mode
+        return await _switch_route(
+            provider=provider,
+            workspace=workspace,
+            input_queue=input_queue,
+            store=store,
+            router=router,
+            agent=agent,
+            current_route=current_route,
+            current_session=current_session,
+            history=history,
+            plan_mode=plan_mode,
+            ui=ui,
+            target_agent=target_agent,
+            thread_key=thread_key,
+            reason=summary,
+        )
     if prompt == "/session":
         ui.print_session_status(
             current_session,
@@ -563,3 +672,245 @@ def _parse_skill_install_args(prompt: str, *, slug_index: int) -> dict[str, obje
         "force": force,
         "install_user": install_user,
     }
+
+
+def _add_agent_command(prompt: str, *, cwd: Path) -> tuple[Path, HostedAgentDefinition]:
+    parts = shlex.split(prompt)
+    if len(parts) < 4:
+        raise ValueError('/agent add <name> --workspace <path> --description "..." [--channel <name>] [--config <path>] [--remote <url>]')
+    name = parts[2].strip()
+    description = ""
+    workspace_root: Path | None = None
+    config_path: Path | None = None
+    remote_endpoint: str | None = None
+    default_channels: list[str] = []
+    index = 3
+    while index < len(parts):
+        part = parts[index]
+        if part == "--workspace":
+            workspace_root = (cwd / parts[index + 1]).resolve()
+            index += 2
+            continue
+        if part == "--description":
+            description = parts[index + 1]
+            index += 2
+            continue
+        if part == "--channel":
+            default_channels.append(parts[index + 1].strip())
+            index += 2
+            continue
+        if part == "--config":
+            config_path = (cwd / parts[index + 1]).resolve()
+            index += 2
+            continue
+        if part == "--remote":
+            remote_endpoint = parts[index + 1].strip()
+            index += 2
+            continue
+        raise ValueError(f"unsupported /agent add option: {part}")
+    if workspace_root is None:
+        raise ValueError("agent workspace is required")
+    definition = HostedAgentDefinition(
+        name=name,
+        description=description or f"Hosted agent {name}",
+        workspace_root=workspace_root,
+        default_channels=tuple(default_channels or ("cli",)),
+        config_path=config_path,
+        remote_endpoint=remote_endpoint,
+    )
+    known_channels = ChannelRegistry.discover_default(cwd=cwd, home=Path.home())
+    for channel_name in definition.default_channels:
+        known_channels.require(channel_name)
+    path = add_hosted_agent(cwd=cwd, definition=definition)
+    return path, definition
+
+
+def _add_team_command(prompt: str, *, cwd: Path) -> tuple[Path, TeamDefinition]:
+    parts = shlex.split(prompt)
+    if len(parts) < 4:
+        raise ValueError('/team add <name> --lead <agent> [--member <name>] [--workspace <path>] [--description "..."]')
+    name = parts[2].strip()
+    lead_agent: str | None = None
+    description = ""
+    members: list[str] = []
+    workspace_root: Path | None = None
+    index = 3
+    while index < len(parts):
+        part = parts[index]
+        if part == "--lead":
+            lead_agent = parts[index + 1].strip()
+            index += 2
+            continue
+        if part == "--member":
+            members.append(parts[index + 1].strip())
+            index += 2
+            continue
+        if part == "--workspace":
+            workspace_root = (cwd / parts[index + 1]).resolve()
+            index += 2
+            continue
+        if part == "--description":
+            description = parts[index + 1]
+            index += 2
+            continue
+        raise ValueError(f"unsupported /team add option: {part}")
+    if lead_agent is None:
+        raise ValueError("team lead is required")
+    HostedAgentRegistry.discover_default(cwd=cwd, home=Path.home()).require(lead_agent)
+    for member in members:
+        HostedAgentRegistry.discover_default(cwd=cwd, home=Path.home()).require(member)
+    definition = TeamDefinition(
+        name=name,
+        description=description or f"Team {name}",
+        lead_agent=lead_agent,
+        member_agents=tuple(members or (lead_agent,)),
+        workspace_root=workspace_root,
+    )
+    path = add_team(cwd=cwd, definition=definition)
+    return path, definition
+
+
+def _add_channel_command(prompt: str, *, cwd: Path) -> tuple[Path, ChannelDefinition]:
+    parts = shlex.split(prompt)
+    if len(parts) < 4:
+        raise ValueError('/channel add <name> (--agent <name> | --team <name>) [--prefix <prefix>] [--description "..."]')
+    name = parts[2].strip()
+    description = ""
+    default_target_agent: str | None = None
+    default_team: str | None = None
+    thread_prefix: str | None = None
+    index = 3
+    while index < len(parts):
+        part = parts[index]
+        if part == "--agent":
+            default_target_agent = parts[index + 1].strip()
+            index += 2
+            continue
+        if part == "--team":
+            default_team = parts[index + 1].strip()
+            index += 2
+            continue
+        if part == "--prefix":
+            thread_prefix = parts[index + 1].strip()
+            index += 2
+            continue
+        if part == "--description":
+            description = parts[index + 1]
+            index += 2
+            continue
+        raise ValueError(f"unsupported /channel add option: {part}")
+    if not default_target_agent and not default_team:
+        raise ValueError("channel must target an agent or a team")
+    if default_target_agent:
+        HostedAgentRegistry.discover_default(cwd=cwd, home=Path.home()).require(default_target_agent)
+    if default_team:
+        TeamRegistry.discover_default(cwd=cwd, home=Path.home()).require(default_team)
+    definition = ChannelDefinition(
+        name=name,
+        description=description or f"Channel {name}",
+        default_target_agent=default_target_agent,
+        default_team=default_team,
+        thread_prefix=thread_prefix,
+    )
+    path = add_channel(cwd=cwd, definition=definition)
+    return path, definition
+
+
+def _add_mcp_command(prompt: str, *, cwd: Path) -> tuple[Path, MCPServer]:
+    parts = shlex.split(prompt)
+    if len(parts) < 5:
+        raise ValueError("/mcp add <stdio|http|sse> <name> <command|url> [args...]")
+    transport = parts[2].strip()
+    name = parts[3].strip()
+    if transport == "stdio":
+        command = parts[4].strip()
+        args = parts[5:]
+        server = MCPServer(
+            name=name,
+            config_path=(cwd / ".mcp.json").resolve(),
+            transport="stdio",
+            command=command,
+            args=args,
+        )
+    elif transport in {"http", "sse"}:
+        url = parts[4].strip()
+        server = MCPServer(
+            name=name,
+            config_path=(cwd / ".mcp.json").resolve(),
+            transport=transport,
+            url=url,
+        )
+    else:
+        raise ValueError(f"unsupported MCP transport: {transport}")
+    path = add_mcp_server(cwd=cwd, server=server)
+    return path, server
+
+
+def _resolve_route_command(prompt: str, *, cwd: Path) -> tuple[str, str, str]:
+    parts = shlex.split(prompt)
+    if len(parts) < 3:
+        raise ValueError("/use <agent|team|channel> <name>")
+    kind = parts[1].strip()
+    name = parts[2].strip()
+    teams = TeamRegistry.discover_default(cwd=cwd, home=Path.home())
+    channels = ChannelRegistry.discover_default(cwd=cwd, home=Path.home())
+    if kind == "agent":
+        return name, "cli:local", f"agent={name} thread=cli:local"
+    if kind == "team":
+        team = teams.require(name)
+        return team.lead_agent, "cli:local", f"team={team.name} lead={team.lead_agent} thread=cli:local"
+    if kind == "channel":
+        channel = channels.require(name)
+        target_agent = channel.resolve_target_agent(teams)
+        thread_key = channel.resolve_thread_key(CLI_THREAD_SUFFIX)
+        return target_agent, thread_key, f"channel={channel.name} agent={target_agent} thread={thread_key}"
+    raise ValueError(f"unsupported route target: {kind}")
+
+
+async def _switch_route(
+    *,
+    provider: OpenRouterProvider,
+    workspace: Path,
+    input_queue: "asyncio.Queue[UserInputRequest]",
+    store: SessionStore,
+    router: SessionRouter,
+    agent: HarnessAgent,
+    current_route: SessionRoute,
+    current_session: SessionRecord,
+    history: list[Message],
+    plan_mode: bool,
+    ui: ConsoleUI,
+    target_agent: str,
+    thread_key: str,
+    reason: str,
+) -> tuple[bool, HarnessAgent, SessionRoute, SessionRecord, list[Message], bool]:
+    current_session = _save_session(store, current_session, history, agent)
+    await agent.flush_memory_updates()
+    ui.drain_notice_queue(agent.notice_queue())
+    registry = HostedAgentRegistry.discover_default(cwd=workspace, home=Path.home())
+    definition = registry.require(target_agent)
+    agent = build_agent(
+        provider,
+        cwd=workspace,
+        input_queue=input_queue,
+        target_agent=target_agent,
+    )
+    current_route, current_session = router.resolve_or_create(
+        target_agent=target_agent,
+        thread_key=thread_key,
+        cwd=definition.workspace_root,
+    )
+    history = store.restore_into_agent(agent, current_session)
+    plan_mode = False
+    ui.print_rendered_text(
+        "Route Updated",
+        "\n".join(
+            [
+                reason,
+                f"session={current_session.id}",
+            ]
+        ),
+    )
+    if history:
+        ui.print_history_preview(history)
+    return True, agent, current_route, current_session, history, plan_mode

@@ -29,7 +29,7 @@ from mini_claw_code_py.tui import (
     summarize_tool_call,
 )
 from mini_claw_code_py.tui.console import summarize_history_message
-from mini_claw_code_py.tui.app import _handle_command
+from mini_claw_code_py.tui.app import _handle_command, build_agent
 
 
 def test_tui_resolve_option_answer_accepts_numeric_choice() -> None:
@@ -732,3 +732,225 @@ async def test_tui_work_app_handles_slash_commands_in_textual_console(tmp_path: 
         assert "mode=planning" in str(summary.content)
         assert "planning ON" in transcript_text
         assert "Control profile:" in transcript_text
+
+
+def test_tui_handle_command_agent_add_writes_project_registry(tmp_path: Path) -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+    store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    runs = RunStore(tmp_path / ".mini-claw" / "os")
+    router = SessionRouter(default_route_store(tmp_path), store)
+    current_session = store.create(cwd=tmp_path)
+    current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
+    provider = MockStreamProvider(deque())
+    agent = build_agent(provider, cwd=tmp_path, input_queue=asyncio.Queue())
+
+    async def run() -> tuple[bool, object, object, object, list[Message], bool]:
+        return await _handle_command(
+            prompt='/agent add reviewer --workspace . --description "Review repository changes."',
+            provider=provider,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            input_queue=asyncio.Queue(),
+            store=store,
+            router=router,
+            runs=runs,
+            agent=agent,
+            current_route=current_route,
+            current_session=current_session,
+            history=[],
+            plan_mode=False,
+            ui=ui,
+        )
+
+    handled, _, _, _, _, _ = asyncio.run(run())
+
+    rendered = console.export_text()
+    assert handled is True
+    assert "Agent Added" in rendered
+    assert '"reviewer"' in (tmp_path / ".agents.json").read_text(encoding="utf-8")
+
+
+def test_tui_handle_command_team_and_channel_add_write_project_config(tmp_path: Path) -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+    store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    runs = RunStore(tmp_path / ".mini-claw" / "os")
+    router = SessionRouter(default_route_store(tmp_path), store)
+    current_session = store.create(cwd=tmp_path)
+    current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
+    provider = MockStreamProvider(deque())
+    agent = build_agent(provider, cwd=tmp_path, input_queue=asyncio.Queue())
+    (tmp_path / ".agents.json").write_text(
+        (
+            '{\n'
+            '  "agents": {\n'
+            '    "support-lead": {\n'
+            '      "description": "Support lead.",\n'
+            '      "workspace_root": ".",\n'
+            '      "default_channels": ["cli"]\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    async def run_team() -> tuple[bool, object, object, object, list[Message], bool]:
+        return await _handle_command(
+            prompt='/team add support --lead support-lead --member support-lead --description "Support team."',
+            provider=provider,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            input_queue=asyncio.Queue(),
+            store=store,
+            router=router,
+            runs=runs,
+            agent=agent,
+            current_route=current_route,
+            current_session=current_session,
+            history=[],
+            plan_mode=False,
+            ui=ui,
+        )
+
+    handled, _, _, _, _, _ = asyncio.run(run_team())
+    assert handled is True
+    assert '"support"' in (tmp_path / ".teams.json").read_text(encoding="utf-8")
+
+    async def run_channel() -> tuple[bool, object, object, object, list[Message], bool]:
+        return await _handle_command(
+            prompt='/channel add telegram --team support --prefix tg --description "Telegram front door."',
+            provider=provider,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            input_queue=asyncio.Queue(),
+            store=store,
+            router=router,
+            runs=runs,
+            agent=agent,
+            current_route=current_route,
+            current_session=current_session,
+            history=[],
+            plan_mode=False,
+            ui=ui,
+        )
+
+    handled, _, _, _, _, _ = asyncio.run(run_channel())
+    rendered = console.export_text()
+    assert handled is True
+    assert "Channel Added" in rendered
+    assert '"telegram"' in (tmp_path / ".channels.json").read_text(encoding="utf-8")
+
+
+def test_tui_handle_command_mcp_add_writes_project_config(tmp_path: Path) -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+    store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    runs = RunStore(tmp_path / ".mini-claw" / "os")
+    router = SessionRouter(default_route_store(tmp_path), store)
+    current_session = store.create(cwd=tmp_path)
+    current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
+    provider = MockStreamProvider(deque())
+    agent = build_agent(provider, cwd=tmp_path, input_queue=asyncio.Queue())
+
+    async def run() -> tuple[bool, object, object, object, list[Message], bool]:
+        return await _handle_command(
+            prompt="/mcp add stdio filesystem-demo uvx mcp-server-filesystem .",
+            provider=provider,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            input_queue=asyncio.Queue(),
+            store=store,
+            router=router,
+            runs=runs,
+            agent=agent,
+            current_route=current_route,
+            current_session=current_session,
+            history=[],
+            plan_mode=False,
+            ui=ui,
+        )
+
+    handled, _, _, _, _, _ = asyncio.run(run())
+
+    rendered = console.export_text()
+    assert handled is True
+    assert "MCP Added" in rendered
+    assert '"filesystem-demo"' in (tmp_path / ".mcp.json").read_text(encoding="utf-8")
+
+
+def test_tui_handle_command_use_channel_switches_active_route(tmp_path: Path) -> None:
+    console = Console(record=True, width=120)
+    ui = ConsoleUI(console=console)
+    store = SessionStore(tmp_path / ".mini-claw" / "sessions")
+    runs = RunStore(tmp_path / ".mini-claw" / "os")
+    router = SessionRouter(default_route_store(tmp_path), store)
+    current_session = store.create(cwd=tmp_path)
+    current_route = router.bind(target_agent="superagent", thread_key="cli:local", session_id=current_session.id)
+    provider = MockStreamProvider(deque())
+    agent = build_agent(provider, cwd=tmp_path, input_queue=asyncio.Queue())
+    (tmp_path / ".agents.json").write_text(
+        (
+            '{\n'
+            '  "agents": {\n'
+            '    "support-lead": {\n'
+            '      "description": "Support lead.",\n'
+            '      "workspace_root": ".",\n'
+            '      "default_channels": ["cli", "telegram"]\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / ".teams.json").write_text(
+        (
+            '{\n'
+            '  "teams": {\n'
+            '    "support": {\n'
+            '      "description": "Support team.",\n'
+            '      "lead_agent": "support-lead",\n'
+            '      "member_agents": ["support-lead"]\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / ".channels.json").write_text(
+        (
+            '{\n'
+            '  "channels": {\n'
+            '    "telegram": {\n'
+            '      "description": "Telegram front door.",\n'
+            '      "default_team": "support",\n'
+            '      "thread_prefix": "tg"\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    async def run() -> tuple[bool, object, object, object, list[Message], bool]:
+        return await _handle_command(
+            prompt="/use channel telegram",
+            provider=provider,  # type: ignore[arg-type]
+            workspace=tmp_path,
+            input_queue=asyncio.Queue(),
+            store=store,
+            router=router,
+            runs=runs,
+            agent=agent,
+            current_route=current_route,
+            current_session=current_session,
+            history=[],
+            plan_mode=False,
+            ui=ui,
+        )
+
+    handled, _, new_route, new_session, _, _ = asyncio.run(run())
+
+    rendered = console.export_text()
+    assert handled is True
+    assert "Route Updated" in rendered
+    assert new_route.target_agent == "support-lead"
+    assert new_route.thread_key == "tg:local"
+    assert new_session.id
