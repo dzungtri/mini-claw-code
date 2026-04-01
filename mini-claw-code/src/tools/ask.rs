@@ -4,7 +4,8 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, oneshot};
 
-use crate::types::{Tool, ToolDefinition};
+use crate::permissions::PermissionMode;
+use crate::types::{Tool, ToolDefinition, ToolOutput};
 
 // ---------------------------------------------------------------------------
 // Trait
@@ -37,6 +38,7 @@ impl AskTool {
                  before proceeding. The user will see your question and can provide a free-text \
                  answer or choose from the options you provide.",
             )
+            .required_permission(PermissionMode::ReadOnly)
             .param("question", "string", "The question to ask the user", true)
             .param_raw(
                 "options",
@@ -58,7 +60,7 @@ impl Tool for AskTool {
         &self.definition
     }
 
-    async fn call(&self, args: Value) -> anyhow::Result<String> {
+    async fn call(&self, args: Value) -> anyhow::Result<ToolOutput> {
         let question = args
             .get("question")
             .and_then(|v| v.as_str())
@@ -66,7 +68,7 @@ impl Tool for AskTool {
 
         let options = parse_options(&args);
 
-        self.handler.ask(question, &options).await
+        self.handler.ask(question, &options).await.map(Into::into)
     }
 }
 

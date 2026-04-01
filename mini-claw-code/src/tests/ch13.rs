@@ -21,7 +21,7 @@ async fn test_ch13_subagent_text_response() {
         stop_reason: StopReason::Stop,
     }])));
 
-    let tool = SubagentTool::new(provider, || ToolSet::new());
+    let tool = SubagentTool::new(provider, ToolSet::new);
     let result = tool.call(json!({"task": "Do something"})).await.unwrap();
 
     assert_eq!(result, "Child result");
@@ -162,7 +162,7 @@ async fn test_ch13_max_turns_exceeded() {
 #[tokio::test]
 async fn test_ch13_subagent_missing_task() {
     let provider = Arc::new(MockProvider::new(VecDeque::new()));
-    let tool = SubagentTool::new(provider, || ToolSet::new());
+    let tool = SubagentTool::new(provider, ToolSet::new);
     let result = tool.call(json!({})).await;
 
     assert!(result.is_err());
@@ -182,7 +182,7 @@ async fn test_ch13_subagent_missing_task() {
 async fn test_ch13_subagent_child_provider_error() {
     // Empty mock → error on first call
     let provider = Arc::new(MockProvider::new(VecDeque::new()));
-    let tool = SubagentTool::new(provider, || ToolSet::new());
+    let tool = SubagentTool::new(provider, ToolSet::new);
     let result = tool.call(json!({"task": "Do something"})).await;
 
     assert!(result.is_err());
@@ -213,7 +213,7 @@ async fn test_ch13_subagent_unknown_tool_in_child() {
         },
     ])));
 
-    let tool = SubagentTool::new(provider, || ToolSet::new());
+    let tool = SubagentTool::new(provider, ToolSet::new);
     let result = tool.call(json!({"task": "Try unknown"})).await.unwrap();
 
     assert_eq!(result, "Tool not found, but I can still answer.");
@@ -247,7 +247,7 @@ async fn test_ch13_system_prompt_in_child() {
     }])));
 
     let tool =
-        SubagentTool::new(provider, || ToolSet::new()).system_prompt("You are a security auditor.");
+        SubagentTool::new(provider, ToolSet::new).system_prompt("You are a security auditor.");
     let result = tool.call(json!({"task": "Audit this code"})).await.unwrap();
 
     assert_eq!(result, "Audited.");

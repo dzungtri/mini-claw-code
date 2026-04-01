@@ -1,7 +1,13 @@
 pub mod agent;
+pub mod dispatch;
+pub mod mcp;
+pub mod mcp_client;
+pub mod mcp_stdio;
 pub mod mock;
+pub mod permissions;
 pub mod planning;
 pub mod providers;
+pub mod sandbox;
 pub mod streaming;
 pub mod subagent;
 pub mod tools;
@@ -25,9 +31,27 @@ pub fn load_prompt_template(env_var: &str, default_template: &str) -> anyhow::Re
 }
 
 pub use agent::{AgentEvent, SimpleAgent, single_turn};
+pub use mcp::{mcp_tool_name, mcp_tool_prefix, normalize_name_for_mcp};
+pub use mcp_client::{McpClientBootstrap, McpClientTransport, McpStdioTransport};
+pub use mcp_stdio::{
+    JsonRpcError, JsonRpcId, JsonRpcRequest, JsonRpcResponse, ManagedMcpResource, ManagedMcpTool,
+    McpInitializeClientInfo, McpInitializeParams, McpInitializeResult, McpInitializeServerInfo,
+    McpListResourcesParams, McpListResourcesResult, McpListToolsParams, McpListToolsResult,
+    McpReadResourceParams, McpReadResourceResult, McpResource, McpResourceContents,
+    McpServerManager, McpServerManagerError, McpStdioProcess, McpTool, McpToolAdapter,
+    McpToolCallContent, McpToolCallParams, McpToolCallResult,
+};
 pub use mock::MockProvider;
+pub use permissions::{
+    PermissionMode, PermissionOutcome, PermissionPolicy, PermissionPromptDecision,
+    PermissionPrompter, PermissionRequest,
+};
 pub use planning::{DEFAULT_PLAN_PROMPT_TEMPLATE, PlanAgent};
-pub use providers::OpenRouterProvider;
+pub use providers::{OpenRouterProvider, ProviderKind};
+pub use sandbox::{
+    FilesystemIsolationMode, LinuxSandboxCommand, SandboxConfig, SandboxRequest, SandboxStatus,
+    build_linux_sandbox_command, resolve_sandbox_status_for_request,
+};
 pub use streaming::{
     MockStreamProvider, StreamAccumulator, StreamEvent, StreamProvider, StreamingAgent,
     parse_sse_line,

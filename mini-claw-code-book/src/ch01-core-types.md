@@ -54,11 +54,12 @@ classDiagram
         User(String)
         Assistant(AssistantTurn)
         ToolResult(id, content)
+        ToolResultStructured(id, content, structured)
     }
 
     class ToolDefinition {
-        name: &'static str
-        description: &'static str
+        name: String
+        description: String
         parameters: Value
     }
 
@@ -77,14 +78,16 @@ classDiagram
 
 ```rust
 pub struct ToolDefinition {
-    pub name: &'static str,
-    pub description: &'static str,
+    pub name: String,
+    pub description: String,
     pub parameters: Value,
 }
 ```
 
 Each tool declares a `ToolDefinition` that tells the LLM what it can do. The
-`parameters` field is a JSON Schema object describing the tool's arguments.
+`parameters` field is a JSON Schema object describing the tool's arguments. The
+name and description are owned `String`s so the runtime can register
+dynamically discovered tools later, not just compile-time static ones.
 
 Rather than building JSON by hand every time, `ToolDefinition` has a builder
 API:
@@ -173,6 +176,7 @@ pub enum Message {
     User(String),
     Assistant(AssistantTurn),
     ToolResult { id: String, content: String },
+    ToolResultStructured { id: String, content: String, structured: Value },
 }
 ```
 
@@ -185,6 +189,10 @@ The conversation history is a list of `Message` values:
 - **`ToolResult { id, content }`** -- the result of executing a tool call. The
   `id` matches the `ToolCall::id` so the LLM knows which call this result
   belongs to.
+- **`ToolResultStructured { id, content, structured }`** -- the same tool-result
+  link plus an optional structured payload. Most early tools still return plain
+  text, but the richer variant lets later chapters preserve structured tool
+  data without redesigning the message protocol again.
 
 You will use these variants starting in Chapter 3 when building the
 `single_turn()` function.

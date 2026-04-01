@@ -24,7 +24,7 @@ Open `mini-claw-code-starter/src/types.rs` and look at the `Tool` trait:
 #[async_trait::async_trait]
 pub trait Tool: Send + Sync {
     fn definition(&self) -> &ToolDefinition;
-    async fn call(&self, args: Value) -> anyhow::Result<String>;
+    async fn call(&self, args: Value) -> anyhow::Result<ToolOutput>;
 }
 ```
 
@@ -34,14 +34,16 @@ Two methods:
   and a JSON schema describing its parameters. The LLM uses this to decide which
   tool to call and how to format the arguments.
 - **`call()`** actually executes the tool. It receives a `serde_json::Value`
-  containing the arguments and returns a string result.
+  containing the arguments and returns a `ToolOutput`. Most tools still return
+  plain text with `Ok("...".into())`, but the richer wrapper keeps the trait
+  compatible with structured tool results later in the book.
 
 ### `ToolDefinition`
 
 ```rust
 pub struct ToolDefinition {
-    pub name: &'static str,
-    pub description: &'static str,
+    pub name: String,
+    pub description: String,
     pub parameters: Value,
 }
 ```
@@ -81,7 +83,7 @@ Here is the data flow when the agent calls a tool:
 flowchart LR
     A["LLM returns<br/>ToolCall"] --> B["args: JSON Value<br/>{&quot;path&quot;: &quot;f.txt&quot;}"]
     B --> C["Tool::call(args)"]
-    C --> D["Result: String<br/>(file contents)"]
+    C --> D["Result: ToolOutput<br/>(usually text)"]
     D --> E["Sent back to LLM<br/>as ToolResult"]
 ```
 
@@ -121,10 +123,10 @@ This is where the real work happens. Your implementation should:
 Here is the shape:
 
 ```rust
-async fn call(&self, args: Value) -> anyhow::Result<String> {
+async fn call(&self, args: Value) -> anyhow::Result<ToolOutput> {
     // 1. Extract path
     // 2. Read file with tokio::fs::read_to_string
-    // 3. Return contents
+    // 3. Return contents with .into()
 }
 ```
 
@@ -135,7 +137,8 @@ Some useful APIs:
 - `tokio::fs::read_to_string(path).await` reads a file asynchronously. Chain
   `.with_context(|| format!("failed to read '{path}'"))?` for a clear error message.
 
-That is it -- extract the path, read the file, return the contents.
+That is it -- extract the path, read the file, and return the contents with
+`Ok(content.into())`.
 
 ## Running the tests
 

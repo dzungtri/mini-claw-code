@@ -4,6 +4,58 @@ use serde_json::Value;
 
 use crate::types::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderKind {
+    OpenRouter,
+    OpenAI,
+    Gemini,
+}
+
+impl ProviderKind {
+    pub fn all() -> [Self; 3] {
+        [Self::OpenRouter, Self::OpenAI, Self::Gemini]
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "openrouter",
+            Self::OpenAI => "openai",
+            Self::Gemini => "gemini",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "openrouter" => Some(Self::OpenRouter),
+            "openai" => Some(Self::OpenAI),
+            "gemini" => Some(Self::Gemini),
+            _ => None,
+        }
+    }
+
+    pub fn is_configured(self) -> bool {
+        std::env::var(self.api_key_env())
+            .ok()
+            .is_some_and(|value| !value.trim().is_empty())
+    }
+
+    fn api_key_env(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "OPENROUTER_API_KEY",
+            Self::OpenAI => "OPENAI_API_KEY",
+            Self::Gemini => "GEMINI_API_KEY",
+        }
+    }
+
+    fn model_env(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "OPENROUTER_MODEL",
+            Self::OpenAI => "OPENAI_MODEL",
+            Self::Gemini => "GEMINI_MODEL",
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // OpenAI-compatible request/response types (used by OpenRouter, OpenAI, etc.)
 // ---------------------------------------------------------------------------
@@ -52,8 +104,8 @@ pub(crate) struct ApiTool {
 
 #[derive(Serialize, Debug)]
 pub(crate) struct ApiToolDef {
-    pub(crate) name: &'static str,
-    pub(crate) description: &'static str,
+    pub(crate) name: String,
+    pub(crate) description: String,
     pub(crate) parameters: Value,
 }
 
@@ -88,8 +140,10 @@ pub struct OpenRouterProvider {
 impl OpenRouterProvider {
     const OPENROUTER_BASE_URL: &'static str = "https://openrouter.ai/api/v1";
     const OPENAI_BASE_URL: &'static str = "https://api.openai.com/v1";
+    const GEMINI_BASE_URL: &'static str = "https://generativelanguage.googleapis.com/v1beta/openai";
     const DEFAULT_OPENROUTER_MODEL: &'static str = "openrouter/free";
-    const DEFAULT_OPENAI_MODEL: &'static str = "gpt-5-mini-2025-08-07";
+    const DEFAULT_OPENAI_MODEL: &'static str = "gpt-4o-mini";
+    const DEFAULT_GEMINI_MODEL: &'static str = "gemini-2.0-flash";
 
     pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
@@ -129,6 +183,40 @@ impl OpenRouterProvider {
         )
     }
 
+    pub fn default_model_for_kind(kind: ProviderKind) -> String {
+        match kind {
+            ProviderKind::OpenRouter => Self::read_non_empty_env(kind.model_env())
+                .unwrap_or_else(|| Self::DEFAULT_OPENROUTER_MODEL.to_string()),
+            ProviderKind::OpenAI => Self::read_non_empty_env(kind.model_env())
+                .unwrap_or_else(|| Self::DEFAULT_OPENAI_MODEL.to_string()),
+            ProviderKind::Gemini => Self::read_non_empty_env(kind.model_env())
+                .unwrap_or_else(|| Self::DEFAULT_GEMINI_MODEL.to_string()),
+        }
+    }
+
+    pub fn from_kind_and_env(
+        kind: ProviderKind,
+        model_override: Option<String>,
+    ) -> anyhow::Result<Self> {
+        let _ = dotenvy::dotenv();
+        let api_key = Self::read_non_empty_env(kind.api_key_env()).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Missing API key for {} ({})",
+                kind.as_str(),
+                kind.api_key_env()
+            )
+        })?;
+        let model = model_override
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| Self::default_model_for_kind(kind));
+
+        match kind {
+            ProviderKind::OpenRouter => Ok(Self::new(api_key, model)),
+            ProviderKind::OpenAI => Ok(Self::new(api_key, model).base_url(Self::OPENAI_BASE_URL)),
+            ProviderKind::Gemini => Ok(Self::new(api_key, model).base_url(Self::GEMINI_BASE_URL)),
+        }
+    }
+
     pub fn from_env() -> anyhow::Result<Self> {
         let _ = dotenvy::dotenv();
 
@@ -144,8 +232,14 @@ impl OpenRouterProvider {
             return Ok(Self::new(api_key, model).base_url(Self::OPENAI_BASE_URL));
         }
 
+        if let Some(api_key) = Self::read_non_empty_env("GEMINI_API_KEY") {
+            let model = Self::read_non_empty_env("GEMINI_MODEL")
+                .unwrap_or_else(|| Self::DEFAULT_GEMINI_MODEL.to_string());
+            return Ok(Self::new(api_key, model).base_url(Self::GEMINI_BASE_URL));
+        }
+
         anyhow::bail!(
-            "No API key found. Set OPENROUTER_API_KEY or OPENAI_API_KEY in environment or .env"
+            "No API key found. Set OPENROUTER_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY in environment or .env"
         )
     }
 
@@ -193,6 +287,20 @@ impl OpenRouterProvider {
                     tool_calls: None,
                     tool_call_id: Some(id.clone()),
                 }),
+                Message::ToolResultStructured {
+                    id,
+                    content,
+                    structured,
+                } => out.push(ApiMessage {
+                    role: "tool".into(),
+                    content: Some(if content.is_empty() {
+                        structured.to_string()
+                    } else {
+                        content.clone()
+                    }),
+                    tool_calls: None,
+                    tool_call_id: Some(id.clone()),
+                }),
             }
         }
         out
@@ -204,8 +312,8 @@ impl OpenRouterProvider {
             .map(|t| ApiTool {
                 type_: "function",
                 function: ApiToolDef {
-                    name: t.name,
-                    description: t.description,
+                    name: t.name.clone(),
+                    description: t.description.clone(),
                     parameters: t.parameters.clone(),
                 },
             })

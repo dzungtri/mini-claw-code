@@ -6,7 +6,9 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 use crate::agent::{AgentEvent, tool_summary};
+use crate::dispatch::{execute_tool_calls, push_tool_results};
 use crate::mock::MockProvider;
+use crate::permissions::{PermissionMode, PermissionPolicy};
 use crate::types::*;
 
 // ---------------------------------------------------------------------------
@@ -280,6 +282,7 @@ impl StreamProvider for MockStreamProvider {
 pub struct StreamingAgent<P: StreamProvider> {
     provider: P,
     tools: ToolSet,
+    permission_policy: PermissionPolicy,
 }
 
 impl<P: StreamProvider> StreamingAgent<P> {
@@ -287,11 +290,22 @@ impl<P: StreamProvider> StreamingAgent<P> {
         Self {
             provider,
             tools: ToolSet::new(),
+            permission_policy: PermissionPolicy::new(PermissionMode::DangerFullAccess),
         }
     }
 
     pub fn tool(mut self, t: impl Tool + 'static) -> Self {
         self.tools.push(t);
+        self
+    }
+
+    pub fn permission_mode(mut self, mode: PermissionMode) -> Self {
+        self.permission_policy = PermissionPolicy::new(mode);
+        self
+    }
+
+    pub fn permission_policy(mut self, policy: PermissionPolicy) -> Self {
+        self.permission_policy = policy;
         self
     }
 
@@ -348,26 +362,20 @@ impl<P: StreamProvider> StreamingAgent<P> {
                     return Ok(text);
                 }
                 StopReason::ToolUse => {
-                    let mut results = Vec::with_capacity(turn.tool_calls.len());
                     for call in &turn.tool_calls {
                         let _ = events.send(AgentEvent::ToolCall {
                             name: call.name.clone(),
                             summary: tool_summary(call),
                         });
-                        let content = match self.tools.get(&call.name) {
-                            Some(t) => t
-                                .call(call.arguments.clone())
-                                .await
-                                .unwrap_or_else(|e| format!("error: {e}")),
-                            None => format!("error: unknown tool `{}`", call.name),
-                        };
-                        results.push((call.id.clone(), content));
                     }
+                    let results = execute_tool_calls(
+                        &self.tools,
+                        &turn.tool_calls,
+                        Some(&self.permission_policy),
+                    )
+                    .await;
 
-                    messages.push(Message::Assistant(turn));
-                    for (id, content) in results {
-                        messages.push(Message::ToolResult { id, content });
-                    }
+                    push_tool_results(messages, turn, results);
                 }
             }
         }

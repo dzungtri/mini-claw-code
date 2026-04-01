@@ -6,8 +6,9 @@ destructive command -- all before you've had a chance to review what it's doing.
 
 **Plan mode** solves this with a two-phase workflow:
 
-1. **Plan** -- the agent explores the codebase using read-only tools (`read`,
-   `bash`, and `ask_user`). It cannot write, edit, or mutate anything. It
+1. **Plan** -- the agent explores the codebase using read-only tools (`read`
+   and `ask_user` by default). `bash` is now opt-in rather than part of the
+   default planning allowlist. It cannot write, edit, or mutate anything. It
    returns a plan describing what it intends to do.
 2. **Execute** -- after the user reviews and approves the plan, the agent runs
    again with all tools available.
@@ -61,7 +62,7 @@ difference is *which tools are available*.
 `PlanAgent` has the same shape as `StreamingAgent` -- a provider, a `ToolSet`,
 and an agent loop. Three additions make it a planning agent:
 
-1. A `HashSet<&'static str>` recording which tools are allowed during planning.
+1. A `HashSet<String>` recording which tools are allowed during planning.
 2. A **system prompt** injected at the start of the planning phase.
 3. An **`exit_plan` tool definition** the LLM calls when its plan is ready.
 
@@ -69,7 +70,7 @@ and an agent loop. Three additions make it a planning agent:
 pub struct PlanAgent<P: StreamProvider> {
     provider: P,
     tools: ToolSet,
-    read_only: HashSet<&'static str>,
+    read_only: HashSet<String>,
     plan_system_prompt: String,
     exit_plan_def: ToolDefinition,
 }
@@ -94,7 +95,7 @@ impl<P: StreamProvider> PlanAgent<P> {
         Self {
             provider,
             tools: ToolSet::new(),
-            read_only: HashSet::from(["bash", "read", "ask_user"]),
+            read_only: HashSet::from([String::from("read"), String::from("ask_user")]),
             plan_system_prompt: DEFAULT_PLAN_PROMPT.to_string(),
             exit_plan_def: ToolDefinition::new(
                 "exit_plan",
@@ -110,8 +111,8 @@ impl<P: StreamProvider> PlanAgent<P> {
         self
     }
 
-    pub fn read_only(mut self, names: &[&'static str]) -> Self {
-        self.read_only = names.iter().copied().collect();
+    pub fn read_only(mut self, names: &[&str]) -> Self {
+        self.read_only = names.iter().map(|name| (*name).to_string()).collect();
         self
     }
 
@@ -122,10 +123,11 @@ impl<P: StreamProvider> PlanAgent<P> {
 }
 ```
 
-By default, `bash`, `read`, and `ask_user` are read-only. (Chapter 11 added
-`ask_user` so the LLM can ask clarifying questions during planning.) The
-`.read_only()` method lets callers override this -- for example, to exclude
-`bash` from planning if you want a stricter mode.
+By default, `read` and `ask_user` are read-only. (Chapter 11 added `ask_user`
+so the LLM can ask clarifying questions during planning.) `bash` is now an
+**opt-in** planning tool rather than part of the default allowlist, because an
+unsandboxed shell is not meaningfully read-only. The `.read_only()` method lets
+callers override this if they want a stricter or looser planning surface.
 
 The `.plan_prompt()` method lets callers override the system prompt -- useful
 for specialized agents like security auditors or code reviewers.

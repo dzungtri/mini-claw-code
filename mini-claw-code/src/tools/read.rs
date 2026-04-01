@@ -1,6 +1,7 @@
 use anyhow::Context;
 use serde_json::Value;
 
+use crate::permissions::PermissionMode;
 use crate::types::*;
 
 pub struct ReadTool {
@@ -16,12 +17,9 @@ impl Default for ReadTool {
 impl ReadTool {
     pub fn new() -> Self {
         Self {
-            definition: ToolDefinition::new("read", "Read the contents of a file.").param(
-                "path",
-                "string",
-                "The file path to read",
-                true,
-            ),
+            definition: ToolDefinition::new("read", "Read the contents of a file.")
+                .param("path", "string", "The file path to read", true)
+                .required_permission(PermissionMode::ReadOnly),
         }
     }
 }
@@ -32,11 +30,11 @@ impl Tool for ReadTool {
         &self.definition
     }
 
-    async fn call(&self, args: Value) -> anyhow::Result<String> {
+    async fn call(&self, args: Value) -> anyhow::Result<ToolOutput> {
         let path = args["path"].as_str().context("missing 'path' argument")?;
         let content = tokio::fs::read_to_string(path)
             .await
             .with_context(|| format!("failed to read '{path}'"))?;
-        Ok(content)
+        Ok(content.into())
     }
 }

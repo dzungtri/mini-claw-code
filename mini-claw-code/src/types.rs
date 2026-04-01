@@ -4,23 +4,28 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use crate::permissions::PermissionMode;
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ToolDefinition {
-    pub name: &'static str,
-    pub description: &'static str,
+    pub name: String,
+    pub description: String,
     pub parameters: Value,
+    pub required_permission: PermissionMode,
 }
 
 impl ToolDefinition {
     /// Create a new tool definition with no parameters.
-    pub fn new(name: &'static str, description: &'static str) -> Self {
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
-            name,
-            description,
+            name: name.into(),
+            description: description.into(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {},
                 "required": []
             }),
+            required_permission: PermissionMode::DangerFullAccess,
         }
     }
 
@@ -57,8 +62,14 @@ impl ToolDefinition {
         }
         self
     }
+
+    pub fn required_permission(mut self, mode: PermissionMode) -> Self {
+        self.required_permission = mode;
+        self
+    }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct ToolCall {
     pub id: String,
     pub name: String,
@@ -66,6 +77,7 @@ pub struct ToolCall {
 }
 
 /// Why the model stopped generating.
+#[derive(Debug, Clone, PartialEq)]
 pub enum StopReason {
     /// The model finished — check `text` for the response.
     Stop,
@@ -73,17 +85,95 @@ pub enum StopReason {
     ToolUse,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct AssistantTurn {
     pub text: Option<String>,
     pub tool_calls: Vec<ToolCall>,
     pub stop_reason: StopReason,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ToolOutput {
+    Text(String),
+    Rich { content: String, structured: Value },
+}
+
+impl ToolOutput {
+    pub fn text(content: impl Into<String>) -> Self {
+        Self::Text(content.into())
+    }
+
+    pub fn rich(content: impl Into<String>, structured: Value) -> Self {
+        Self::Rich {
+            content: content.into(),
+            structured,
+        }
+    }
+
+    pub fn content(&self) -> &str {
+        match self {
+            Self::Text(content) | Self::Rich { content, .. } => content,
+        }
+    }
+
+    pub fn structured(&self) -> Option<&Value> {
+        match self {
+            Self::Text(_) => None,
+            Self::Rich { structured, .. } => Some(structured),
+        }
+    }
+
+    pub fn contains(&self, needle: &str) -> bool {
+        self.content().contains(needle)
+    }
+
+    pub fn len(&self) -> usize {
+        self.content().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.content().is_empty()
+    }
+}
+
+impl From<String> for ToolOutput {
+    fn from(value: String) -> Self {
+        Self::Text(value)
+    }
+}
+
+impl From<&str> for ToolOutput {
+    fn from(value: &str) -> Self {
+        Self::Text(value.to_string())
+    }
+}
+
+impl PartialEq<&str> for ToolOutput {
+    fn eq(&self, other: &&str) -> bool {
+        self.content() == *other
+    }
+}
+
+impl PartialEq<ToolOutput> for &str {
+    fn eq(&self, other: &ToolOutput) -> bool {
+        *self == other.content()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Message {
     System(String),
     User(String),
     Assistant(AssistantTurn),
-    ToolResult { id: String, content: String },
+    ToolResult {
+        id: String,
+        content: String,
+    },
+    ToolResultStructured {
+        id: String,
+        content: String,
+        structured: Value,
+    },
 }
 
 /// The `Tool` trait uses `#[async_trait]` (instead of RPITIT like `Provider`)
@@ -93,7 +183,7 @@ pub enum Message {
 #[async_trait::async_trait]
 pub trait Tool: Send + Sync {
     fn definition(&self) -> &ToolDefinition;
-    async fn call(&self, args: Value) -> anyhow::Result<String>;
+    async fn call(&self, args: Value) -> anyhow::Result<ToolOutput>;
 }
 
 /// A named collection of tools backed by a HashMap for O(1) lookup.

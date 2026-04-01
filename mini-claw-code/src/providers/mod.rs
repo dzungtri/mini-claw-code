@@ -1,3 +1,3 @@
 pub(crate) mod openrouter;
 
-pub use openrouter::OpenRouterProvider;
+pub use openrouter::{OpenRouterProvider, ProviderKind};

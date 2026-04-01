@@ -27,6 +27,14 @@ fn test_ch6_from_env() {
 }
 
 #[test]
+fn test_ch6_from_kind_and_env_openai() {
+    unsafe { std::env::set_var("OPENAI_API_KEY", "test-openai-key") };
+    let result =
+        OpenRouterProvider::from_kind_and_env(ProviderKind::OpenAI, Some("gpt-4o-mini".into()));
+    assert!(result.is_ok());
+}
+
+#[test]
 fn test_ch6_convert_messages() {
     let messages = vec![
         Message::User("hello".into()),
@@ -50,9 +58,10 @@ fn test_ch6_convert_messages() {
 #[test]
 fn test_ch6_convert_tools() {
     let def = ToolDefinition {
-        name: "test_tool",
-        description: "A test tool",
+        name: "test_tool".into(),
+        description: "A test tool".into(),
         parameters: json!({"type": "object"}),
+        required_permission: crate::PermissionMode::DangerFullAccess,
     };
 
     let converted = OpenRouterProvider::convert_tools(&[&def]);

@@ -2,6 +2,9 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use crate::dispatch::current_permission_policy;
+use crate::dispatch::{execute_tool_calls, push_tool_results};
+use crate::permissions::{PermissionMode, PermissionPolicy};
 use crate::types::*;
 
 /// A tool that spawns a child agent to handle a subtask independently.
@@ -20,6 +23,7 @@ use crate::types::*;
 pub struct SubagentTool<P: Provider> {
     provider: Arc<P>,
     tools_factory: Box<dyn Fn() -> ToolSet + Send + Sync>,
+    permission_policy: Option<PermissionPolicy>,
     system_prompt: Option<String>,
     max_turns: usize,
     definition: ToolDefinition,
@@ -35,6 +39,7 @@ impl<P: Provider> SubagentTool<P> {
         Self {
             provider,
             tools_factory: Box::new(tools_factory),
+            permission_policy: None,
             system_prompt: None,
             max_turns: 10,
             definition: ToolDefinition::new(
@@ -42,6 +47,7 @@ impl<P: Provider> SubagentTool<P> {
                 "Spawn a child agent to handle a subtask independently. \
                  The child has its own message history and tools.",
             )
+            .required_permission(PermissionMode::WorkspaceWrite)
             .param(
                 "task",
                 "string",
@@ -63,6 +69,13 @@ impl<P: Provider> SubagentTool<P> {
         self.max_turns = max;
         self
     }
+
+    /// Override the child agent's permission policy. If the parent has a more
+    /// restrictive policy, that narrower policy wins.
+    pub fn permission_policy(mut self, policy: PermissionPolicy) -> Self {
+        self.permission_policy = Some(policy);
+        self
+    }
 }
 
 #[async_trait::async_trait]
@@ -71,7 +84,7 @@ impl<P: Provider + 'static> Tool for SubagentTool<P> {
         &self.definition
     }
 
-    async fn call(&self, args: Value) -> anyhow::Result<String> {
+    async fn call(&self, args: Value) -> anyhow::Result<ToolOutput> {
         let task = args
             .get("task")
             .and_then(|v| v.as_str())
@@ -79,6 +92,14 @@ impl<P: Provider + 'static> Tool for SubagentTool<P> {
 
         let tools = (self.tools_factory)();
         let defs = tools.definitions();
+        let inherited_policy = current_permission_policy();
+        let effective_policy = match (inherited_policy, self.permission_policy.clone()) {
+            (Some(parent), Some(child)) if child.active_mode() > parent.active_mode() => parent,
+            (Some(_), Some(child)) => child,
+            (Some(parent), None) => parent,
+            (None, Some(child)) => child,
+            (None, None) => PermissionPolicy::new(PermissionMode::DangerFullAccess),
+        };
 
         let mut messages = Vec::new();
         if let Some(ref prompt) = self.system_prompt {
@@ -91,28 +112,16 @@ impl<P: Provider + 'static> Tool for SubagentTool<P> {
 
             match turn.stop_reason {
                 StopReason::Stop => {
-                    return Ok(turn.text.unwrap_or_default());
+                    return Ok(ToolOutput::text(turn.text.unwrap_or_default()));
                 }
                 StopReason::ToolUse => {
-                    let mut results = Vec::with_capacity(turn.tool_calls.len());
-                    for call in &turn.tool_calls {
-                        let content = match tools.get(&call.name) {
-                            Some(t) => t
-                                .call(call.arguments.clone())
-                                .await
-                                .unwrap_or_else(|e| format!("error: {e}")),
-                            None => format!("error: unknown tool `{}`", call.name),
-                        };
-                        results.push((call.id.clone(), content));
-                    }
-                    messages.push(Message::Assistant(turn));
-                    for (id, content) in results {
-                        messages.push(Message::ToolResult { id, content });
-                    }
+                    let results =
+                        execute_tool_calls(&tools, &turn.tool_calls, Some(&effective_policy)).await;
+                    push_tool_results(&mut messages, turn, results);
                 }
             }
         }
 
-        Ok("error: max turns exceeded".to_string())
+        Ok(ToolOutput::text("error: max turns exceeded".to_string()))
     }
 }

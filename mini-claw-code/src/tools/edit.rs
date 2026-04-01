@@ -1,6 +1,7 @@
 use anyhow::{Context, bail};
 use serde_json::Value;
 
+use crate::permissions::PermissionMode;
 use crate::types::*;
 
 pub struct EditTool {
@@ -20,6 +21,7 @@ impl EditTool {
                 "edit",
                 "Replace an exact string in a file (must appear exactly once).",
             )
+            .required_permission(PermissionMode::WorkspaceWrite)
             .param("path", "string", "The file path to edit", true)
             .param(
                 "old_string",
@@ -38,7 +40,7 @@ impl Tool for EditTool {
         &self.definition
     }
 
-    async fn call(&self, args: Value) -> anyhow::Result<String> {
+    async fn call(&self, args: Value) -> anyhow::Result<ToolOutput> {
         let path = args["path"].as_str().context("missing 'path' argument")?;
         let old = args["old_string"]
             .as_str()
@@ -64,6 +66,6 @@ impl Tool for EditTool {
             .await
             .with_context(|| format!("failed to write '{path}'"))?;
 
-        Ok(format!("edited {path}"))
+        Ok(format!("edited {path}").into())
     }
 }

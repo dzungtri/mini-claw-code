@@ -194,6 +194,9 @@ Iterate over the messages and match on each variant:
 
 - **`Message::ToolResult { id, content }`** becomes an `ApiMessage` with role
   `"tool"`, `content: Some(content.clone())`, and `tool_call_id: Some(id.clone())`.
+- **`Message::ToolResultStructured { id, content, .. }`** also becomes a tool
+  message, using the human-readable `content` string for transport while the
+  richer structured payload remains available inside Rust.
 
 ### Step 6: Implement `convert_tools()`
 
@@ -203,8 +206,8 @@ Map each `&ToolDefinition` to an `ApiTool`:
 ApiTool {
     type_: "function",
     function: ApiToolDef {
-        name: t.name,
-        description: t.description,
+        name: t.name.clone(),
+        description: t.description.clone(),
         parameters: t.parameters.clone(),
     },
 }

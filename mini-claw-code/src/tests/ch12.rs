@@ -440,7 +440,7 @@ async fn test_ch12_system_prompt_injected() {
     let _ = agent.plan(&mut messages, tx).await.unwrap();
 
     // System prompt was injected at position 0
-    assert!(matches!(&messages[0], Message::System(s) if s.contains("PLANNING MODE")));
+    assert!(matches!(&messages[0], Message::System(s) if s.contains("planning mode")));
 }
 
 // ---------------------------------------------------------------------------

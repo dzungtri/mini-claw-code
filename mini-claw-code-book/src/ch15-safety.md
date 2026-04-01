@@ -103,13 +103,14 @@ If yes, allow it. If not, decide whether to deny outright or prompt.
 
 Permissions work best when the rule lives next to the tool definition.
 
-The reference `crates/tools/src/lib.rs` does this with `ToolSpec`:
+In the current `mini-claw-code` implementation, the permission level now lives
+directly on `ToolDefinition`:
 
 ```rust
-pub struct ToolSpec {
-    pub name: &'static str,
-    pub description: &'static str,
-    pub input_schema: Value,
+pub struct ToolDefinition {
+    pub name: String,
+    pub description: String,
+    pub parameters: Value,
     pub required_permission: PermissionMode,
 }
 ```
@@ -146,6 +147,7 @@ pub fn authorize(
     tool_name: &str,
     input: &str,
     prompter: Option<&mut dyn PermissionPrompter>,
+    required_mode: PermissionMode,
 ) -> PermissionOutcome
 ```
 
@@ -178,7 +180,10 @@ pub trait PermissionPrompter {
 ```
 
 Now the runtime can ask for approval *without* knowing how the question is
-rendered.
+rendered. In the current mini implementation, the dispatcher already uses the
+same `PermissionPolicy` for all execution paths and returns a denial message
+when approval would be required; wiring a live prompter into the UI can come
+later without changing the policy model again.
 
 The policy decides when to prompt. The UI only decides how to display the
 prompt.
@@ -218,7 +223,9 @@ do not let it run unrestricted shell commands silently.
 The most important integration point is in the runtime loop itself.
 
 The reference `ConversationRuntime::run_turn()` does the check *after* the LLM
-has requested a tool, but *before* the tool executes:
+has requested a tool, but *before* the tool executes. `mini-claw-code` now does
+the same thing through a shared dispatcher used by `single_turn`,
+`SimpleAgent`, `PlanAgent`, `StreamingAgent`, and `SubagentTool`:
 
 ```rust
 let permission_outcome = self.permission_policy.authorize(&tool_name, &input, ...);
@@ -282,7 +289,8 @@ That is honest engineering.
 
 The shell tool is where safety becomes concrete.
 
-In `runtime/src/bash.rs`, the command input can request sandbox-related options:
+In `runtime/src/bash.rs`, the command input can request sandbox-related options.
+The mini implementation now follows the same shape:
 
 ```rust
 pub struct BashCommandInput {
@@ -310,8 +318,9 @@ The flow is:
 5. If possible, wrap the command in Linux `unshare`
 6. If filesystem isolation is active, rewrite `HOME` and `TMPDIR`
 
-The output even includes the resolved sandbox status, so callers can see what
-protections were active during execution.
+The output can now carry the resolved sandbox status as structured tool data, so
+callers can see what protections were active during execution without throwing
+away the human-readable command output.
 
 ## Timeouts are safety features too
 
@@ -375,12 +384,14 @@ If the answer to any of those is no, your safety story is probably incomplete.
 
 - **Safety rails are layered** -- permissions, approval, sandboxing, and
   timeouts solve different problems.
-- **Tool specs should declare required permission levels** so policy stays close
-  to capability.
+- **Tool definitions should declare required permission levels** so policy stays
+  close to capability.
 - **`PermissionPolicy`** turns tool requests into `Allow` or `Deny { reason }`.
 - **Approval belongs in the runtime contract**, not just in the UI.
 - **The agent loop is the enforcement point**: check permission before tool
   execution, then return either output or a denial result.
 - **Sandboxing is defense in depth** for commands that are allowed to run.
+- **Shared dispatch matters**: local tools, streaming execution, planning mode,
+  subagents, and MCP-backed tools should all cross the same safety boundary.
 - **Purely additive**: you can add real safety rails without throwing away the
   agent architecture you've built in the earlier chapters.

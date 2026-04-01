@@ -17,7 +17,7 @@ it offers, and expose those capabilities to the model.
 This is how modern coding agents stay extensible. Claude Code, OpenCode, and
 similar tools all use the same core idea: **the agent loop stays the same; only the tool source changes**.
 
-In this chapter you'll design the MCP layer for `mini-claw-code`, borrowing the
+In this chapter you'll build the first MCP layer for `mini-claw-code`, borrowing the
 core ideas from the Rust reference implementation in:
 
 - `crates/runtime/src/mcp.rs`
@@ -262,7 +262,9 @@ pub struct ManagedMcpTool {
 ```
 
 Now you can turn each discovered MCP tool into something your LLM already
-understands:
+understands. In the current mini implementation this happens through an
+adapter (`McpToolAdapter`) that converts a discovered MCP tool into a normal
+`Tool` with a dynamic `ToolDefinition`:
 
 ```rust
 ToolDefinition {
@@ -322,8 +324,12 @@ A clean mental model is:
 - **Tools** do work
 - **Resources** provide context
 
-In a future `mini-claw-code` implementation, you could expose MCP resources in
-at least two ways:
+In the current `mini-claw-code` implementation, resources stay **read-only**.
+`McpServerManager` can list and read them directly, but they are not yet turned
+into first-class mutating tools. That keeps Chapter 14 honest: tools execute;
+resources provide context.
+
+You could expose MCP resources in at least two ways:
 
 1. As explicit tools like `mcp__docs__read_resource`
 2. As a pre-step that lets your app read resources and inject them into the
@@ -382,7 +388,9 @@ qualified name starts with mcp__ ?
    └─ yes -> McpServerManager::call_tool(...)
 ```
 
-That adapter is the entire integration story.
+That adapter is the entire integration story. In the current codebase the
+shared dispatcher still executes the adapted MCP tool like any other tool call,
+so local tools and remote MCP tools follow the same path once discovery is done.
 
 The agent loop from Chapter 5 does not fundamentally change. The LLM still:
 
@@ -404,6 +412,7 @@ If you build this for real, keep the first version small:
 4. **tool index** for routing
 5. **typed JSON-RPC structs**
 6. **clear error types**
+7. **read-only resources** only if they fit cleanly; otherwise defer them explicitly
 
 That already gets you a usable MCP bridge.
 
@@ -444,7 +453,9 @@ implement.
 - **stdio + JSON-RPC** is the cleanest first transport for a tutorial agent.
 - **`McpServerManager`** is the bridge: initialize server, list tools, index
   routes, forward calls.
+- **`McpToolAdapter`** turns discovered MCP tools into ordinary tools that the
+  shared dispatcher can execute.
 - **Resources are not tools** -- keep read-only context separate from active
-  execution.
+  execution, and only ship `list`/`read` support if you can do it honestly.
 - **Purely additive**: MCP should extend your tool surface without rewriting the
   core agent loop.

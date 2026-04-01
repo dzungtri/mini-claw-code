@@ -48,7 +48,10 @@ Agent (with subagents):
 ```
 
 The key insight: **a subagent is just a Tool**. It takes a task description as
-input, does work internally, and returns a string result. The parent's agent
+input, does work internally, and returns a final tool result. In practice that
+is usually plain text, but the runtime now uses the same `ToolOutput` contract
+as every other tool so richer tool-result payloads can still flow through the
+shared dispatcher. The parent's agent
 loop doesn't need any special handling -- it calls the subagent tool the same
 way it calls `read` or `bash`.
 
@@ -178,7 +181,7 @@ impl<P: Provider + 'static> Tool for SubagentTool<P> {
         &self.definition
     }
 
-    async fn call(&self, args: Value) -> anyhow::Result<String> {
+    async fn call(&self, args: Value) -> anyhow::Result<ToolOutput> {
         let task = args
             .get("task")
             .and_then(|v| v.as_str())
@@ -198,7 +201,7 @@ impl<P: Provider + 'static> Tool for SubagentTool<P> {
 
             match turn.stop_reason {
                 StopReason::Stop => {
-                    return Ok(turn.text.unwrap_or_default());
+                    return Ok(ToolOutput::text(turn.text.unwrap_or_default()));
                 }
                 StopReason::ToolUse => {
                     let mut results = Vec::with_capacity(turn.tool_calls.len());
@@ -220,7 +223,7 @@ impl<P: Provider + 'static> Tool for SubagentTool<P> {
             }
         }
 
-        Ok("error: max turns exceeded".to_string())
+        Ok(ToolOutput::text("error: max turns exceeded".to_string()))
     }
 }
 ```

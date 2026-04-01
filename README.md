@@ -142,7 +142,11 @@ flowchart LR
 
 ## Safety warning
 
-This agent has **unrestricted shell access**. The `BashTool` passes LLM-generated commands directly to `bash -c` with no sandboxing, filtering, or timeout. The `ReadTool` and `WriteTool` can access any file your user account can. This is intentional for a learning project, but:
+This agent can execute powerful shell commands. In the early chapters, `BashTool`
+runs LLM-generated commands directly via `bash -c`. By Chapter 15, the reference
+implementation adds permission modes, optional timeouts, and Linux sandbox controls,
+but you should still treat it as high-risk by default. The `ReadTool` and `WriteTool`
+can access files your user account can. This is intentional for a learning project, but:
 
 - **Do not run this agent on untrusted prompts or files** (prompt injection via file contents can execute arbitrary commands).
 - **Do not run this on a machine with sensitive data** without understanding the risks.

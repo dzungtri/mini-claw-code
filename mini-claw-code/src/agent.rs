@@ -1,3 +1,5 @@
+use crate::dispatch::{execute_tool_calls, push_tool_results};
+use crate::permissions::{PermissionMode, PermissionPolicy};
 use crate::types::*;
 use tokio::sync::mpsc;
 
@@ -51,23 +53,12 @@ pub async fn single_turn<P: Provider>(
     match turn.stop_reason {
         StopReason::Stop => Ok(turn.text.unwrap_or_default()),
         StopReason::ToolUse => {
-            let mut results = Vec::new();
             for call in &turn.tool_calls {
                 print!("\x1b[2K\r{}\n", tool_summary(call));
-                let content = match tools.get(&call.name) {
-                    Some(t) => t
-                        .call(call.arguments.clone())
-                        .await
-                        .unwrap_or_else(|e| format!("error: {e}")),
-                    None => format!("error: unknown tool `{}`", call.name),
-                };
-                results.push((call.id.clone(), content));
             }
+            let results = execute_tool_calls(tools, &turn.tool_calls, None).await;
 
-            messages.push(Message::Assistant(turn));
-            for (id, content) in results {
-                messages.push(Message::ToolResult { id, content });
-            }
+            push_tool_results(&mut messages, turn, results);
 
             let final_turn = provider.chat(&messages, &defs).await?;
             Ok(final_turn.text.unwrap_or_default())
@@ -78,6 +69,7 @@ pub async fn single_turn<P: Provider>(
 pub struct SimpleAgent<P: Provider> {
     provider: P,
     tools: ToolSet,
+    permission_policy: PermissionPolicy,
 }
 
 impl<P: Provider> SimpleAgent<P> {
@@ -85,6 +77,7 @@ impl<P: Provider> SimpleAgent<P> {
         Self {
             provider,
             tools: ToolSet::new(),
+            permission_policy: PermissionPolicy::new(PermissionMode::DangerFullAccess),
         }
     }
 
@@ -93,32 +86,28 @@ impl<P: Provider> SimpleAgent<P> {
         self
     }
 
-    /// Execute all tool calls and return `(call_id, result_string)` pairs.
-    async fn execute_tools(&self, calls: &[ToolCall]) -> Vec<(String, String)> {
-        let mut results = Vec::with_capacity(calls.len());
-        for call in calls {
-            let content = match self.tools.get(&call.name) {
-                Some(t) => t
-                    .call(call.arguments.clone())
-                    .await
-                    .unwrap_or_else(|e| format!("error: {e}")),
-                None => format!("error: unknown tool `{}`", call.name),
-            };
-            results.push((call.id.clone(), content));
-        }
-        results
+    pub fn permission_mode(mut self, mode: PermissionMode) -> Self {
+        self.permission_policy = PermissionPolicy::new(mode);
+        self
+    }
+
+    pub fn permission_policy(mut self, policy: PermissionPolicy) -> Self {
+        self.permission_policy = policy;
+        self
+    }
+
+    /// Execute all tool calls and return `(call_id, result)` pairs.
+    async fn execute_tools(&self, calls: &[ToolCall]) -> Vec<(String, ToolOutput)> {
+        execute_tool_calls(&self.tools, calls, Some(&self.permission_policy)).await
     }
 
     /// Push an assistant turn and its tool results into the message history.
     fn push_results(
         messages: &mut Vec<Message>,
         turn: AssistantTurn,
-        results: Vec<(String, String)>,
+        results: Vec<(String, ToolOutput)>,
     ) {
-        messages.push(Message::Assistant(turn));
-        for (id, content) in results {
-            messages.push(Message::ToolResult { id, content });
-        }
+        push_tool_results(messages, turn, results);
     }
 
     /// Like [`run_with_events`](Self::run_with_events) but accepts an

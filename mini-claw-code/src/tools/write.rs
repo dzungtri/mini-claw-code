@@ -1,6 +1,7 @@
 use anyhow::Context;
 use serde_json::Value;
 
+use crate::permissions::PermissionMode;
 use crate::types::*;
 
 pub struct WriteTool {
@@ -20,6 +21,7 @@ impl WriteTool {
                 "write",
                 "Write content to a file, creating directories as needed.",
             )
+            .required_permission(PermissionMode::WorkspaceWrite)
             .param("path", "string", "The file path to write to", true)
             .param(
                 "content",
@@ -37,7 +39,7 @@ impl Tool for WriteTool {
         &self.definition
     }
 
-    async fn call(&self, args: Value) -> anyhow::Result<String> {
+    async fn call(&self, args: Value) -> anyhow::Result<ToolOutput> {
         let path = args["path"].as_str().context("missing 'path' argument")?;
         let content = args["content"]
             .as_str()
@@ -53,6 +55,6 @@ impl Tool for WriteTool {
             .await
             .with_context(|| format!("failed to write '{path}'"))?;
 
-        Ok(format!("wrote {path}"))
+        Ok(format!("wrote {path}").into())
     }
 }

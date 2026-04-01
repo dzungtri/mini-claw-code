@@ -226,6 +226,11 @@ Here is the project info from Cargo.toml...
 Unknown tools are handled the same way -- an error string as the tool result,
 not a crash.
 
+In the current reference implementation, this execution path sits behind a
+**shared dispatcher** so `single_turn()`, `SimpleAgent`, plan mode, streaming
+mode, and subagents all reuse the same tool-call and tool-result logic. The
+loop structure stays the same -- the dispatcher just keeps behavior consistent.
+
 ### Pushing messages
 
 After executing all tool calls for a turn, push the assistant message and the

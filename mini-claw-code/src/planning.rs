@@ -3,6 +3,8 @@ use std::collections::HashSet;
 use tokio::sync::mpsc;
 
 use crate::agent::{AgentEvent, tool_summary};
+use crate::dispatch::{execute_tool_calls, push_tool_results, tool_error};
+use crate::permissions::{PermissionMode, PermissionPolicy};
 use crate::streaming::{StreamEvent, StreamProvider};
 use crate::types::*;
 
@@ -18,7 +20,8 @@ pub const DEFAULT_PLAN_PROMPT_TEMPLATE: &str = include_str!("../prompts/planning
 pub struct PlanAgent<P: StreamProvider> {
     provider: P,
     tools: ToolSet,
-    read_only: HashSet<&'static str>,
+    read_only: HashSet<String>,
+    permission_policy: PermissionPolicy,
     plan_system_prompt: String,
     exit_plan_def: ToolDefinition,
 }
@@ -29,13 +32,15 @@ impl<P: StreamProvider> PlanAgent<P> {
         Self {
             provider,
             tools: ToolSet::new(),
-            read_only: HashSet::from(["bash", "read", "ask_user"]),
+            read_only: HashSet::from([String::from("read"), String::from("ask_user")]),
+            permission_policy: PermissionPolicy::new(PermissionMode::DangerFullAccess),
             plan_system_prompt: DEFAULT_PLAN_PROMPT_TEMPLATE.to_string(),
             exit_plan_def: ToolDefinition::new(
                 "exit_plan",
                 "Signal that your plan is complete and ready for user review. \
                  Call this when you have finished exploring and are ready to present your plan.",
-            ),
+            )
+            .required_permission(PermissionMode::ReadOnly),
         }
     }
 
@@ -46,14 +51,24 @@ impl<P: StreamProvider> PlanAgent<P> {
     }
 
     /// Override the set of tool names allowed during the planning phase.
-    pub fn read_only(mut self, names: &[&'static str]) -> Self {
-        self.read_only = names.iter().copied().collect();
+    pub fn read_only(mut self, names: &[&str]) -> Self {
+        self.read_only = names.iter().map(|name| (*name).to_string()).collect();
         self
     }
 
     /// Override the system prompt injected at the start of the planning phase.
     pub fn plan_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.plan_system_prompt = prompt.into();
+        self
+    }
+
+    pub fn permission_mode(mut self, mode: PermissionMode) -> Self {
+        self.permission_policy = PermissionPolicy::new(mode);
+        self
+    }
+
+    pub fn permission_policy(mut self, policy: PermissionPolicy) -> Self {
+        self.permission_policy = policy;
         self
     }
 
@@ -90,7 +105,7 @@ impl<P: StreamProvider> PlanAgent<P> {
     async fn run_loop(
         &self,
         messages: &mut Vec<Message>,
-        allowed: Option<&HashSet<&'static str>>,
+        allowed: Option<&HashSet<String>>,
         events: mpsc::UnboundedSender<AgentEvent>,
     ) -> anyhow::Result<String> {
         let all_defs = self.tools.definitions();
@@ -98,7 +113,7 @@ impl<P: StreamProvider> PlanAgent<P> {
             Some(names) => {
                 let mut filtered: Vec<&ToolDefinition> = all_defs
                     .into_iter()
-                    .filter(|d| names.contains(d.name))
+                    .filter(|d| names.contains(d.name.as_str()))
                     .collect();
                 filtered.push(&self.exit_plan_def);
                 filtered
@@ -137,11 +152,13 @@ impl<P: StreamProvider> PlanAgent<P> {
                 StopReason::ToolUse => {
                     let mut results = Vec::with_capacity(turn.tool_calls.len());
                     let mut exit_plan = false;
+                    let mut executable_calls = Vec::new();
 
                     for call in &turn.tool_calls {
                         // Handle exit_plan: signal plan completion
                         if allowed.is_some() && call.name == "exit_plan" {
-                            results.push((call.id.clone(), "Plan submitted for review.".into()));
+                            results
+                                .push((call.id.clone(), tool_error("Plan submitted for review.")));
                             exit_plan = true;
                             continue;
                         }
@@ -152,10 +169,10 @@ impl<P: StreamProvider> PlanAgent<P> {
                         {
                             results.push((
                                 call.id.clone(),
-                                format!(
+                                tool_error(format!(
                                     "error: tool '{}' is not available in planning mode",
                                     call.name
-                                ),
+                                )),
                             ));
                             continue;
                         }
@@ -164,21 +181,19 @@ impl<P: StreamProvider> PlanAgent<P> {
                             name: call.name.clone(),
                             summary: tool_summary(call),
                         });
-                        let content = match self.tools.get(&call.name) {
-                            Some(t) => t
-                                .call(call.arguments.clone())
-                                .await
-                                .unwrap_or_else(|e| format!("error: {e}")),
-                            None => format!("error: unknown tool `{}`", call.name),
-                        };
-                        results.push((call.id.clone(), content));
+                        executable_calls.push(call.clone());
                     }
+                    results.extend(
+                        execute_tool_calls(
+                            &self.tools,
+                            &executable_calls,
+                            Some(&self.permission_policy),
+                        )
+                        .await,
+                    );
 
                     let plan_text = turn.text.clone().unwrap_or_default();
-                    messages.push(Message::Assistant(turn));
-                    for (id, content) in results {
-                        messages.push(Message::ToolResult { id, content });
-                    }
+                    push_tool_results(messages, turn, results);
 
                     // If exit_plan was called, return the plan text to the caller
                     if exit_plan {
