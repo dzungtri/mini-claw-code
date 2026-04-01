@@ -118,7 +118,7 @@ Match on `StopReason`. Follow instructions. That's the architecture.
 | 12 | Plan Mode | Read-only planning with approval gating |
 | 13 | Subagents | Spawn child agents for subtasks via `SubagentTool` |
 | 14 | MCP | Model Context Protocol and external tool servers |
-| 15 | Safety Rails | *coming soon* |
+| 15 | Safety Rails | Permission modes, approvals, sandboxes, and timeouts |
 
 ```mermaid
 flowchart LR
@@ -146,7 +146,7 @@ This agent has **unrestricted shell access**. The `BashTool` passes LLM-generate
 
 - **Do not run this agent on untrusted prompts or files** (prompt injection via file contents can execute arbitrary commands).
 - **Do not run this on a machine with sensitive data** without understanding the risks.
-- See Chapter 15 (coming soon) for how to add safety rails.
+- See Chapter 15 for how to add permission checks, approvals, sandboxes, and timeouts.
 
 ## Quick start
 
