@@ -117,7 +117,7 @@ Match on `StopReason`. Follow instructions. That's the architecture.
 | 11 | User Input | `AskTool` — let the LLM ask *you* questions |
 | 12 | Plan Mode | Read-only planning with approval gating |
 | 13 | Subagents | Spawn child agents for subtasks via `SubagentTool` |
-| 14 | MCP | *coming soon* |
+| 14 | MCP | Model Context Protocol and external tool servers |
 | 15 | Safety Rails | *coming soon* |
 
 ```mermaid

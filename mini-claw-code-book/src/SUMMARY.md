@@ -18,5 +18,5 @@
 - [Chapter 11: User Input](./ch11-user-input.md)
 - [Chapter 12: Plan Mode](./ch12-plan-mode.md)
 - [Chapter 13: Subagents](./ch13-subagents.md)
-- [Chapter 14: MCP: Model Context Protocol (coming soon)](./ch14-mcp.md)
+- [Chapter 14: MCP: Model Context Protocol](./ch14-mcp.md)
 - [Chapter 15: Safety Rails (coming soon)](./ch15-safety.md)
