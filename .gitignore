@@ -2,9 +2,15 @@
 .env
 mini-claw-code-book/book/
 mini-claw-code-book-ts/book/
+mini-claw-code-book-py/book/
 node_modules/
 mini-claw-code-ts/dist/
 mini-claw-code-starter-ts/dist/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
 .DS_Store
 *.tape
 .omx
