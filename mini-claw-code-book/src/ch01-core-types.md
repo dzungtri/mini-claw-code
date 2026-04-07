@@ -8,6 +8,9 @@ To verify your understanding, you will implement a small test helper:
 `MockProvider`, a struct that returns pre-configured responses so that you can
 test future chapters without an API key.
 
+> This tutorial started as a fork of [odysa/mini-claw-code](https://github.com/odysa/mini-claw-code)
+> and is now maintained by dzungtri.
+
 ## Goal
 
 Understand the core types, then implement `MockProvider` so that:

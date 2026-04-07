@@ -146,7 +146,7 @@ This agent has **unrestricted shell access**. The `BashTool` passes LLM-generate
 ## Quick start
 
 ```bash
-git clone https://github.com/odysa/mini-claw-code.git
+git clone https://github.com/dzungtri/mini-claw-code.git
 cd mini-claw-code
 cargo build
 ```

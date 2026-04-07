@@ -198,7 +198,7 @@ You do *not* need an API key until Chapter 6. Chapters 1 through 5 use the
 Clone the repository and verify things build:
 
 ```bash
-git clone https://github.com/odysa/mini-claw-code.git
+git clone https://github.com/dzungtri/mini-claw-code.git
 cd mini-claw-code
 cargo build
 ```

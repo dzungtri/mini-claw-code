@@ -1,4 +1,4 @@
-use std::process::{Command, exit};
+use std::process::{exit, Command};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -8,6 +8,7 @@ fn main() {
         Some("solution-check") => check("mini-claw-code"),
         Some("book") => book(),
         Some("book-zh") => book_zh(),
+        Some("book-vi") => book_vi(),
         Some("book-build") => book_build(),
         Some(cmd) => {
             eprintln!("Unknown command: {cmd}");
@@ -23,7 +24,7 @@ fn main() {
 
 fn usage() {
     eprintln!("Usage: cargo x <command>");
-    eprintln!("Commands: check, solution-check, book, book-zh, book-build");
+    eprintln!("Commands: check, solution-check, book, book-zh, book-vi, book-build");
 }
 
 fn check(package: &str) {
@@ -71,56 +72,17 @@ fn book() {
 }
 
 fn book_zh() {
-    println!("Building and serving mdbook (Chinese)...");
+    serve_localized_book("Chinese", "book.zh.toml");
+}
 
-    let book_dir = "mini-claw-code-book";
-    let toml_path = format!("{book_dir}/book.toml");
-    let zh_toml_path = format!("{book_dir}/book.zh.toml");
-
-    // Read both configs
-    let original = std::fs::read_to_string(&toml_path).unwrap_or_else(|e| {
-        eprintln!("Failed to read {toml_path}: {e}");
-        exit(1);
-    });
-    let zh_config = std::fs::read_to_string(&zh_toml_path).unwrap_or_else(|e| {
-        eprintln!("Failed to read {zh_toml_path}: {e}");
-        exit(1);
-    });
-
-    // Swap in Chinese config
-    std::fs::write(&toml_path, &zh_config).unwrap_or_else(|e| {
-        eprintln!("Failed to write {toml_path}: {e}");
-        exit(1);
-    });
-
-    let status = Command::new("mdbook")
-        .args(["serve", book_dir])
-        .status()
-        .unwrap_or_else(|e| {
-            // Restore before exiting
-            let _ = std::fs::write(&toml_path, &original);
-            eprintln!("Failed to run mdbook: {e}");
-            eprintln!("Install mdbook with: cargo install mdbook");
-            exit(1);
-        });
-
-    // Restore original config
-    std::fs::write(&toml_path, &original).unwrap_or_else(|e| {
-        eprintln!("Failed to restore {toml_path}: {e}");
-        exit(1);
-    });
-
-    if !status.success() {
-        exit(1);
-    }
+fn book_vi() {
+    serve_localized_book("Vietnamese", "book.vi.toml");
 }
 
 fn book_build() {
-    println!("Building both books...\n");
+    println!("Building all books...\n");
 
     let book_dir = "mini-claw-code-book";
-    let toml_path = format!("{book_dir}/book.toml");
-    let zh_toml_path = format!("{book_dir}/book.zh.toml");
 
     // Build English
     println!("--- English ---");
@@ -136,42 +98,8 @@ fn book_build() {
         exit(1);
     }
 
-    // Read configs
-    let original = std::fs::read_to_string(&toml_path).unwrap_or_else(|e| {
-        eprintln!("Failed to read {toml_path}: {e}");
-        exit(1);
-    });
-    let zh_config = std::fs::read_to_string(&zh_toml_path).unwrap_or_else(|e| {
-        eprintln!("Failed to read {zh_toml_path}: {e}");
-        exit(1);
-    });
-
-    // Swap in Chinese config and build
-    std::fs::write(&toml_path, &zh_config).unwrap_or_else(|e| {
-        eprintln!("Failed to write {toml_path}: {e}");
-        exit(1);
-    });
-
-    println!("--- Chinese ---");
-    let status = Command::new("mdbook")
-        .args(["build", book_dir])
-        .status()
-        .unwrap_or_else(|e| {
-            let _ = std::fs::write(&toml_path, &original);
-            eprintln!("Failed to run mdbook: {e}");
-            exit(1);
-        });
-
-    // Restore original config
-    std::fs::write(&toml_path, &original).unwrap_or_else(|e| {
-        eprintln!("Failed to restore {toml_path}: {e}");
-        exit(1);
-    });
-
-    if !status.success() {
-        eprintln!("Chinese build failed!");
-        exit(1);
-    }
+    build_localized_book("Chinese", "book.zh.toml");
+    build_localized_book("Vietnamese", "book.vi.toml");
 
     // Copy landing page
     let src = format!("{book_dir}/index.html");
@@ -181,5 +109,80 @@ fn book_build() {
         exit(1);
     });
 
-    println!("\nBoth books built to {book_dir}/book/");
+    println!("\nAll books built to {book_dir}/book/");
+}
+
+fn serve_localized_book(language: &str, localized_toml_name: &str) {
+    println!("Building and serving mdbook ({language})...");
+
+    let book_dir = "mini-claw-code-book";
+    let toml_path = format!("{book_dir}/book.toml");
+    let localized_toml_path = format!("{book_dir}/{localized_toml_name}");
+    let original = swap_book_config(&toml_path, &localized_toml_path);
+
+    let status = Command::new("mdbook")
+        .args(["serve", book_dir])
+        .status()
+        .unwrap_or_else(|e| {
+            let _ = std::fs::write(&toml_path, &original);
+            eprintln!("Failed to run mdbook: {e}");
+            eprintln!("Install mdbook with: cargo install mdbook");
+            exit(1);
+        });
+
+    restore_book_config(&toml_path, &original);
+
+    if !status.success() {
+        exit(1);
+    }
+}
+
+fn build_localized_book(language: &str, localized_toml_name: &str) {
+    let book_dir = "mini-claw-code-book";
+    let toml_path = format!("{book_dir}/book.toml");
+    let localized_toml_path = format!("{book_dir}/{localized_toml_name}");
+
+    println!("--- {language} ---");
+    let original = swap_book_config(&toml_path, &localized_toml_path);
+
+    let status = Command::new("mdbook")
+        .args(["build", book_dir])
+        .status()
+        .unwrap_or_else(|e| {
+            let _ = std::fs::write(&toml_path, &original);
+            eprintln!("Failed to run mdbook: {e}");
+            exit(1);
+        });
+
+    restore_book_config(&toml_path, &original);
+
+    if !status.success() {
+        eprintln!("{language} build failed!");
+        exit(1);
+    }
+}
+
+fn swap_book_config(toml_path: &str, localized_toml_path: &str) -> String {
+    let original = std::fs::read_to_string(toml_path).unwrap_or_else(|e| {
+        eprintln!("Failed to read {toml_path}: {e}");
+        exit(1);
+    });
+    let localized_config = std::fs::read_to_string(localized_toml_path).unwrap_or_else(|e| {
+        eprintln!("Failed to read {localized_toml_path}: {e}");
+        exit(1);
+    });
+
+    std::fs::write(toml_path, &localized_config).unwrap_or_else(|e| {
+        eprintln!("Failed to write {toml_path}: {e}");
+        exit(1);
+    });
+
+    original
+}
+
+fn restore_book_config(toml_path: &str, original: &str) {
+    std::fs::write(toml_path, original).unwrap_or_else(|e| {
+        eprintln!("Failed to restore {toml_path}: {e}");
+        exit(1);
+    });
 }

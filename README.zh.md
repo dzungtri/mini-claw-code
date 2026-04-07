@@ -147,7 +147,7 @@ flowchart LR
 ## 快速开始
 
 ```bash
-git clone https://github.com/odysa/mini-claw-code.git
+git clone https://github.com/dzungtri/mini-claw-code.git
 cd mini-claw-code
 cargo build
 ```

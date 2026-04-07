@@ -166,7 +166,7 @@ mini-claw-code/
 克隆仓库并验证能否构建：
 
 ```bash
-git clone https://github.com/odysa/mini-claw-code.git
+git clone https://github.com/dzungtri/mini-claw-code.git
 cd mini-claw-code
 cargo build
 ```
