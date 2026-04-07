@@ -5,18 +5,18 @@
 <h1 align="center">Mini Claw Code</h1>
 
 <p align="center">
-  <strong>用 Rust 从零构建你自己的 coding agent。</strong><br>
-  Claude Code、Cursor、OpenCode 背后的核心架构 —— 用约 300 行代码揭秘。
+  <strong>用 Rust、TypeScript 或 Python 从零构建你自己的 coding agent。</strong><br>
+  Claude Code、Cursor、OpenCode 背后的核心架构 —— 用多语言、可学习的教程拆开来看。
 </p>
 
 <p align="center">
-  <a href="https://odysa.github.io/mini-claw-code/">阅读教程</a> &middot;
+  <a href="https://dzungtri.github.io/mini-claw-code/">阅读教程</a> &middot;
   <a href="#快速开始">快速开始</a> &middot;
   <a href="#章节路线图">章节目录</a>
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | 中文
+  <a href="README.md">English</a> | <a href="README.vi.md">Tiếng Việt</a> | 中文
 </p>
 
 ---
@@ -41,7 +41,13 @@ loop:
 
 LLM 永远不会直接操作你的文件系统。它*请求*你的代码执行工具——读文件、运行命令、编辑代码——而你的代码*执行*。这个循环就是全部核心思想。
 
-本教程从零构建这个循环。**15 章。测试驱动。没有黑魔法。**
+本教程从零构建这个循环。**多语言版本。测试驱动。没有黑魔法。**
+
+现在这个仓库有三条并行学习路径：
+
+- **Rust track**：原始版本，内容最完整
+- **TypeScript track**：面向 Bun + TypeScript 团队
+- **Python track**：面向 Python 团队
 
 ```mermaid
 flowchart LR
@@ -149,17 +155,48 @@ flowchart LR
 ```bash
 git clone https://github.com/dzungtri/mini-claw-code.git
 cd mini-claw-code
+make help
+```
+
+### TypeScript
+
+```bash
+bun install
+bun run typecheck
+bun run test
+make chat-ts
+make book-ts
+```
+
+TypeScript 教程源码：
+
+```text
+mini-claw-code-book-ts/
+```
+
+### Rust
+
+```bash
 cargo build
 ```
 
-启动教程：
+启动 Rust 教程：
 
 ```bash
 cargo install mdbook mdbook-mermaid   # 仅需安装一次
-cargo x book                          # 在 localhost:3000 打开
+make book                             # 在 localhost:3000 打开
 ```
 
-或在线阅读：**[odysa.github.io/mini-claw-code](https://odysa.github.io/mini-claw-code/)**。
+在线阅读：**[dzungtri.github.io/mini-claw-code](https://dzungtri.github.io/mini-claw-code/)**。
+
+### Python
+
+```bash
+cd mini-claw-code-py
+python -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+PYTHONPATH=src .venv/bin/python -m pytest -q
+```
 
 ## 学习流程
 
@@ -179,21 +216,63 @@ mini-claw-code-starter/     <- 你的代码（填写桩函数）
 mini-claw-code/             <- 参考实现（别偷看！）
 mini-claw-code-book/        <- 教程（15 章）
 mini-claw-code-xtask/       <- 辅助命令（cargo x ...）
+mini-claw-code-starter-ts/  <- TypeScript starter 项目
+mini-claw-code-ts/          <- TypeScript 参考实现
+mini-claw-code-book-ts/     <- TypeScript 教程源码
+mini-claw-code-starter-py/  <- Python starter 项目
+mini-claw-code-py/          <- Python 参考实现
+mini-claw-code-book-py/     <- Python 教程源码
 ```
 
 ## 前置要求
 
+- **TypeScript 路线**：Bun 1.3+
+- **Python 路线**：Python 3.11+
 - **Rust 1.85+** —— [rustup.rs](https://rustup.rs)
 - 基础 Rust 知识（所有权、枚举、`Result`/`Option`）
 - 第 6 章之前不需要 API Key
 
 ## 常用命令
 
+TypeScript：
+
+```bash
+bun install
+bun run typecheck
+bun run test
+make chat-ts
+make tui-ts
+make book-ts
+make book-ts-vi
+```
+
+Python：
+
+```bash
+make install-py
+make test-py
+make chat-py
+make book-py
+```
+
+Rust：
+
 ```bash
 cargo test -p mini-claw-code-starter ch1    # 测试单个章节
 cargo test -p mini-claw-code-starter        # 测试全部
 cargo x check                               # 格式检查 + clippy + 测试
-cargo x book                                # 启动教程
+make book                                   # 启动英文 Rust 教程
+make book-vi                                # 启动越南语 Rust 教程
+make book-zh                                # 启动中文 Rust 教程
+```
+
+根目录快捷命令：
+
+```bash
+make help
+make test-ts
+make test-py
+make book-py
 ```
 
 ## 许可证

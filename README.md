@@ -5,17 +5,17 @@
 <h1 align="center">Mini Claw Code</h1>
 
 <p align="center">
-  <strong>Build your own coding agent from scratch in Rust or Python.</strong>
+  <strong>Build your own coding agent from scratch in Rust, TypeScript, or Python.</strong>
 </p>
 
 <p align="center">
-  <a href="https://odysa.github.io/mini-claw-code/">Read the Book</a> &middot;
+  <a href="https://dzungtri.github.io/mini-claw-code/">Read the Books</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#chapter-roadmap">Chapters</a>
 </p>
 
 <p align="center">
-  English | <a href="README.zh.md">中文</a>
+  English | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh.md">中文</a>
 </p>
 
 ---
@@ -42,9 +42,10 @@ The LLM never touches your filesystem. It *asks* your code to run tools — read
 
 This tutorial builds that loop from scratch. **15 chapters. Test-driven. No magic.**
 
-There are now two parallel learning tracks in this repo:
+There are now three parallel learning tracks in this repo:
 
 - **Rust track**: the original project, starter, and book
+- **TypeScript track**: a Bun + TypeScript port for teams building in modern JS/TS stacks
 - **Python track**: a full port for teams who prefer Python
 
 ```mermaid
@@ -155,7 +156,48 @@ git clone https://github.com/dzungtri/mini-claw-code.git
 cd mini-claw-code
 ```
 
+See all top-level helpers:
+
+```bash
+make help
+```
+
 ## Choose your track
+
+### TypeScript
+
+Best if your team already uses Bun + TypeScript and wants the same agent
+concepts in a stack close to modern product engineering.
+
+```bash
+bun install
+bun run typecheck
+bun run test
+```
+
+Run the reference CLI:
+
+```bash
+make chat-ts
+```
+
+Start the TypeScript tutorial book:
+
+```bash
+make book-ts
+```
+
+Vietnamese TypeScript book:
+
+```bash
+make book-ts-vi
+```
+
+TypeScript book source:
+
+```text
+mini-claw-code-book-ts/
+```
 
 ### Python
 
@@ -202,10 +244,10 @@ Start the Rust tutorial book:
 
 ```bash
 cargo install mdbook mdbook-mermaid   # one-time
-cargo x book                          # opens at localhost:3000
+make book                            # opens at localhost:3000
 ```
 
-Or read it online at **[odysa.github.io/mini-claw-code](https://odysa.github.io/mini-claw-code/)**.
+Or read it online at **[dzungtri.github.io/mini-claw-code](https://dzungtri.github.io/mini-claw-code/)**.
 
 ## The workflow
 
@@ -225,6 +267,9 @@ mini-claw-code-starter/     <- Rust starter project
 mini-claw-code/             <- Rust reference implementation
 mini-claw-code-book/        <- Rust tutorial book source
 mini-claw-code-xtask/       <- Rust helper commands (cargo x ...)
+mini-claw-code-starter-ts/  <- TypeScript starter project
+mini-claw-code-ts/          <- TypeScript reference implementation
+mini-claw-code-book-ts/     <- TypeScript tutorial book source
 mini-claw-code-starter-py/  <- Python starter project
 mini-claw-code-py/          <- Python reference implementation
 mini-claw-code-book-py/     <- Python tutorial book source
@@ -232,11 +277,30 @@ mini-claw-code-book-py/     <- Python tutorial book source
 
 ## Prerequisites
 
+- **TypeScript track**: Bun 1.3+
 - **Python track**: Python 3.11+
 - **Rust track**: Rust 1.85+ — [rustup.rs](https://rustup.rs)
 - No API key until the HTTP provider chapter
 
 ## Commands
+
+TypeScript:
+
+```bash
+bun install
+bun run typecheck
+bun run test
+make chat-ts
+make tui-ts
+make book-ts
+make book-ts-vi
+```
+
+TypeScript starter:
+
+```bash
+make test-ts-starter
+```
 
 Python:
 
@@ -260,7 +324,18 @@ Rust:
 cargo test -p mini-claw-code-starter ch1    # test one chapter
 cargo test -p mini-claw-code-starter        # test everything
 cargo x check                               # fmt + clippy + tests
-cargo x book                                # serve the tutorial
+make book                                   # serve the English Rust tutorial
+make book-vi                                # serve the Vietnamese Rust tutorial
+make book-zh                                # serve the Chinese Rust tutorial
+```
+
+Top-level convenience:
+
+```bash
+make help
+make test-ts
+make test-py
+make book-py
 ```
 
 ## License
