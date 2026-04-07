@@ -1,6 +1,10 @@
 /target
 .env
 mini-claw-code-book/book/
+mini-claw-code-book-ts/book/
+node_modules/
+mini-claw-code-ts/dist/
+mini-claw-code-starter-ts/dist/
 .DS_Store
 *.tape
 .omx

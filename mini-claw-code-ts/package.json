@@ -1,0 +1,13 @@
+{
+  "name": "mini-claw-code-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "typecheck": "bun x tsc --noEmit -p tsconfig.json",
+    "test": "bun test",
+    "chat": "bun run examples/chat.ts",
+    "tui": "bun run examples/tui.ts"
+  }
+}

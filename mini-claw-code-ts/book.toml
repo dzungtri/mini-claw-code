@@ -1,0 +1,18 @@
+[book]
+title = "Xây dựng trợ lý lập trình mini của riêng bạn bằng TypeScript"
+authors = ["mini-claw-code contributors"]
+language = "vi"
+src = "vi"
+
+[build]
+build-dir = "book/vi"
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[output.html]
+additional-js = ["mermaid.min.js", "mermaid-init.js", "lang-switcher.js"]
+additional-css = ["lang-switcher.css"]
+site-url = "/mini-claw-code-ts/vi/"
+git-repository-url = "https://github.com/dzungtri/mini-claw-code"
+git-repository-icon = "fab-github"

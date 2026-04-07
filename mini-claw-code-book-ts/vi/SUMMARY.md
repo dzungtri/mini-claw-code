@@ -1,0 +1,18 @@
+# Tóm Tắt
+
+- [Tổng quan](./ch00-overview.md)
+- [Chương 1: Các kiểu cốt lõi](./ch01-core-types.md)
+- [Chương 2: Công cụ đầu tiên của bạn](./ch02-first-tool.md)
+- [Chương 3: Một lượt đơn](./ch03-single-turn.md)
+- [Chương 4: Thêm công cụ](./ch04-more-tools.md)
+- [Chương 5: SDK agent đầu tiên của bạn!](./ch05-agent-loop.md)
+- [Chương 6: Provider Tương Thích OpenAI](./ch06-http-provider.md)
+- [Chương 7: Một CLI Đơn Giản](./ch07-putting-together.md)
+- [Chương 8: Điểm Kỳ Dị](./ch08-singularity.md)
+- [Chương 9: Một TUI Tốt Hơn](./ch09-tui.md)
+- [Chương 10: Streaming](./ch10-streaming.md)
+- [Chương 11: Nhập liệu từ người dùng](./ch11-user-input.md)
+- [Chương 12: Plan Mode](./ch12-plan-mode.md)
+- [Chương 13: Subagents](./ch13-subagents.md)
+- [Chương 14: MCP: Model Context Protocol](./ch14-mcp.md)
+- [Chương 15: Các hàng rào an toàn](./ch15-safety.md)
