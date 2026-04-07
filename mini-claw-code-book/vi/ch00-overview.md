@@ -35,6 +35,90 @@ LLM không bao giờ trực tiếp chạm vào filesystem. Nó chỉ *yêu cầu
 bạn mới là thứ *thực thi*. Vòng lặp đó, yêu cầu, thực thi, gửi kết quả ngược
 lại, chính là toàn bộ ý tưởng.
 
+## LLM, agent, và harnessed agent khác nhau thế nào?
+
+Rất hữu ích nếu bạn tách bạch ba thứ thường bị trộn lẫn với nhau:
+
+### 1. LLM model
+
+Một LLM thuần tuý chỉ là cỗ máy suy luận. Nó dự đoán token tiếp theo. Điều đó
+rất mạnh, nhưng vẫn có giới hạn:
+
+- nó không thể tự đọc repository của bạn
+- nó không thể tự chạy lệnh
+- nó không thể tự giữ trạng thái workflow một cách đáng tin cậy
+- nó không thể tự áp đặt ranh giới review hay approval
+
+Nếu bạn chỉ xây một "LLM wrapper" mỏng, thứ bạn thường có chỉ là một giao diện
+chat trả lời câu hỏi, chứ chưa thể *làm việc* một cách đáng tin cậy.
+
+### 2. Agent
+
+Một **agent** là LLM cộng với tools cộng với một vòng lặp. Vòng lặp này cho
+phép model inspect, hành động, quan sát kết quả, rồi tiếp tục. Đây là bước nhảy
+lớn đầu tiên về năng lực:
+
+- đọc file
+- chạy lệnh
+- ghi hoặc sửa code
+- hỏi người dùng một câu làm rõ
+
+Đó là lý do tại sao cuốn sách này xây một agent, chứ không chỉ là một prompt
+template đẹp hơn bao quanh API LLM.
+
+### 3. Harnessed agent
+
+Một **harnessed agent** đi xa hơn một bước: nó bọc vòng lặp agent vào trong một
+môi trường thực thi có các điểm kiểm soát. Harness là phần biến agent thành thứ
+đủ đáng tin để làm việc thật.
+
+Một harness có thể cung cấp:
+
+- đăng ký tool có kiểm soát
+- nhận biết working directory
+- streaming output
+- cổng nhập liệu từ người dùng
+- tách pha plan / execute
+- hook cho test và mock provider
+- safety rails, giới hạn, và logging
+
+Nói cách khác, harness là phần biến "model có thể gọi tool" thành "hệ thống có
+thể hoàn thành tác vụ theo cách con người quan sát, kiểm tra, và tin tưởng."
+
+Điều này quan trọng vì các hệ agent mạnh không được xây bằng cách viết prompt
+dài hơn. Chúng được xây bằng cách cải thiện vòng lặp *xung quanh* model.
+
+## Vì sao không dừng ở mức LLM wrapper?
+
+Một LLM wrapper thuần tuý là đủ cho:
+
+- trò chuyện
+- tóm tắt văn bản
+- trả lời câu hỏi từ ngữ cảnh đã cho
+
+Nhưng nó nhanh chóng hụt hơi khi làm việc phần mềm. Các tác vụ coding thực sự
+cần một hệ thống có thể:
+
+1. kiểm tra file và thư mục
+2. quyết định bước tiếp theo dựa trên kết quả
+3. thực hiện hành động theo chuỗi
+4. phục hồi khi tool bị lỗi
+5. giữ con người trong vòng lặp khi cần
+
+Đó chính là điều mà vòng lặp agent và harness của nó cung cấp.
+
+Bạn có thể hình dung tiến trình như sau:
+
+```text
+LLM model        = suy nghĩ
+Agent            = suy nghĩ + hành động
+Harnessed agent  = suy nghĩ + hành động + vận hành an toàn trong một workflow
+```
+
+Cuốn sách này bắt đầu từ phần lõi của agent vì đó là đơn vị hữu ích nhỏ nhất.
+Các chương sau sẽ dần bổ sung các mảnh của harness: streaming, nhập liệu từ
+người dùng, plan mode, subagent, và an toàn.
+
 ## LLM dùng tool như thế nào?
 
 LLM không thể thực thi code. Nó là một bộ sinh văn bản. Vì vậy, “gọi tool”

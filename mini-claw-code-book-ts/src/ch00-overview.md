@@ -31,6 +31,88 @@ the user. The agent sits in a loop:
 The LLM never touches the filesystem directly. It just *asks*, and your code
 *does*. That loop -- ask, execute, feed back -- is the entire idea.
 
+## LLM model vs agent vs harnessed agent
+
+It helps to separate three layers that people often collapse into one:
+
+### 1. LLM model
+
+A raw LLM model is the reasoning engine. It predicts the next tokens. That is
+useful, but limited:
+
+- it cannot inspect your repo directly
+- it cannot execute commands
+- it cannot keep trustworthy workflow state by itself
+- it cannot enforce human review or operational boundaries
+
+If you build only a thin LLM wrapper, you usually get a chat interface that can
+answer questions, but not a system that can reliably complete engineering work.
+
+### 2. Agent
+
+An **agent** is an LLM plus tools plus a loop. The loop lets the model inspect
+state, act, observe results, and continue. This is the first major step up in
+capability:
+
+- read files
+- run shell commands
+- write or edit code
+- ask follow-up questions
+
+That is why this book is about building an agent, not just building a cleaner
+wrapper around a model API.
+
+### 3. Harnessed agent
+
+A **harnessed agent** wraps the agent loop inside a controlled execution
+environment. The harness is what makes the agent dependable enough to use in a
+real workflow instead of as a demo.
+
+A harness can add:
+
+- controlled tool registration
+- working-directory awareness
+- streaming output and event handling
+- user-input gates
+- plan / execute separation
+- mock providers and test hooks
+- limits, logging, and safety rails
+
+In other words, the harness is the part that turns "the model can call tools"
+into "the system can complete tasks in a way humans can observe, review, and
+trust."
+
+## Why not stop at an LLM wrapper?
+
+A plain LLM wrapper is enough for:
+
+- chat
+- summarization
+- answering questions from provided context
+
+But software work needs more than that. Real coding tasks require a system
+that can:
+
+1. inspect files and directories
+2. choose the next action based on what it found
+3. execute actions in sequence
+4. recover from tool failures
+5. keep the human in the loop when needed
+
+That is what the agent loop and the harness around it provide.
+
+You can think of the progression like this:
+
+```text
+LLM model        = thinks
+Agent            = thinks + acts
+Harnessed agent  = thinks + acts + operates safely inside a workflow
+```
+
+This book starts with the smallest useful unit: the agent core. Later chapters
+add the harness pieces that make the system stronger: streaming, user input,
+plan mode, subagents, and safety.
+
 ## How does an LLM use a tool?
 
 An LLM cannot execute code. It is a text generator. So "calling a tool" really
