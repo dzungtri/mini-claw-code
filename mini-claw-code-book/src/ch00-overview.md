@@ -13,6 +13,9 @@ until Chapter 6, and when you get there the default model is
 [`openrouter/free`](https://openrouter.ai/docs/guides/routing/routers/free-models-router)
 -- a zero-cost endpoint on OpenRouter, no credits needed.
 
+> This tutorial started as a fork of [odysa/mini-claw-code](https://github.com/odysa/mini-claw-code)
+> and is now maintained by dzungtri.
+
 ## What is an AI agent?
 
 An LLM on its own is a function: text in, text out. Ask it to summarize

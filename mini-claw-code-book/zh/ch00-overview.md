@@ -6,6 +6,11 @@
 [`openrouter/free`](https://openrouter.ai/docs/guides/routing/routers/free-models-router)
 ——OpenRouter 上的免费端点，无需任何费用。
 
+
+> 本教程最初 fork 自 [odysa/mini-claw-code](https://github.com/odysa/mini-claw-code)，
+> 现在由 dzungtri 继续维护。
+
+
 ## 什么是 AI agent？
 
 LLM 本身只是一个函数：文本输入，文本输出。让它总结 `doc.pdf`，它要么拒绝，要么产生幻觉——因为它没有办法打开文件。

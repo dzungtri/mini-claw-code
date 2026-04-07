@@ -8,9 +8,6 @@ khối nền tảng mà mọi phần còn lại đều được xây dựng trê
 `MockProvider`, một struct trả về các phản hồi được cấu hình sẵn để bạn có thể
 kiểm thử các chương sau mà không cần API key.
 
-> Tài liệu này bắt đầu như một bản fork từ [odysa/mini-claw-code](https://github.com/odysa/mini-claw-code)
-> và hiện được dzungtri tiếp tục duy trì.
-
 ## Mục tiêu
 
 Hiểu các kiểu dữ liệu cốt lõi, sau đó triển khai `MockProvider` sao cho:

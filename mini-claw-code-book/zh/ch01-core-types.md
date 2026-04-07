@@ -8,9 +8,6 @@
 `MockProvider`，一个返回预配置响应的结构体，让你在没有 API 密钥的情况下
 测试后续章节的代码。
 
-> 本教程最初 fork 自 [odysa/mini-claw-code](https://github.com/odysa/mini-claw-code)，
-> 现在由 dzungtri 继续维护。
-
 ## 目标
 
 理解核心类型，然后实现 `MockProvider`，使其满足以下要求：
