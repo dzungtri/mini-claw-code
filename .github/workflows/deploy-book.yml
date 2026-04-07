@@ -1,4 +1,4 @@
-name: Deploy Book
+name: Deploy Books
 
 on:
   push:
@@ -12,13 +12,17 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
 
       - name: Install mdBook
         run: |
@@ -31,21 +35,104 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Build English book
-        run: mdbook build mini-claw-code-book
-
-      - name: Build Chinese book
+      - name: Build Rust books
         run: |
+          orig=$(mktemp)
+          cp mini-claw-code-book/book.toml "$orig"
+          trap 'cp "$orig" mini-claw-code-book/book.toml; rm -f "$orig"' EXIT
+
+          mdbook build mini-claw-code-book
           cp mini-claw-code-book/book.zh.toml mini-claw-code-book/book.toml
           mdbook build mini-claw-code-book
+          cp mini-claw-code-book/book.vi.toml mini-claw-code-book/book.toml
+          mdbook build mini-claw-code-book
 
-      - name: Add landing page
-        run: cp mini-claw-code-book/index.html mini-claw-code-book/book/index.html
+      - name: Build TypeScript books
+        run: |
+          orig=$(mktemp)
+          cp mini-claw-code-book-ts/book.toml "$orig"
+          trap 'cp "$orig" mini-claw-code-book-ts/book.toml; rm -f "$orig"' EXIT
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+          mdbook build mini-claw-code-book-ts
+          cp mini-claw-code-book-ts/book.vi.toml mini-claw-code-book-ts/book.toml
+          mdbook build mini-claw-code-book-ts
+
+      - name: Assemble Pages site
+        run: |
+          mkdir -p public/rust public/ts
+          cp -R mini-claw-code-book/book/en/. public/rust/en
+          cp -R mini-claw-code-book/book/zh/. public/rust/zh
+          cp -R mini-claw-code-book/book/vi/. public/rust/vi
+          cp mini-claw-code-book/index.html public/rust/index.html
+
+          cp -R mini-claw-code-book-ts/book/en/. public/ts/en
+          cp -R mini-claw-code-book-ts/book/vi/. public/ts/vi
+          cp mini-claw-code-book-ts/index.html public/ts/index.html
+
+          cat > public/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Mini Claw Code Books</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+                margin: 0;
+                background: #141a24;
+                color: #e8edf5;
+              }
+              .container {
+                text-align: center;
+                padding: 2rem;
+              }
+              h1 {
+                font-size: 2rem;
+                margin-bottom: 2rem;
+              }
+              .links {
+                display: flex;
+                gap: 1.5rem;
+                justify-content: center;
+                flex-wrap: wrap;
+              }
+              a {
+                display: block;
+                padding: 1rem 2.5rem;
+                border: 2px solid #6ec1ff;
+                border-radius: 8px;
+                color: #6ec1ff;
+                text-decoration: none;
+                font-size: 1.1rem;
+                transition: background 0.2s, color 0.2s;
+              }
+              a:hover {
+                background: #6ec1ff;
+                color: #141a24;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h1>Mini Claw Code Books</h1>
+              <div class="links">
+                <a href="rust/">Rust Book</a>
+                <a href="ts/">TypeScript Book</a>
+              </div>
+            </div>
+          </body>
+          </html>
+          EOF
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
         with:
-          path: mini-claw-code-book/book
+          path: public
 
   deploy:
     needs: build

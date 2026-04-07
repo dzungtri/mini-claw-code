@@ -13,6 +13,6 @@ command = "mdbook-mermaid"
 [output.html]
 additional-js = ["mermaid.min.js", "mermaid-init.js", "lang-switcher.js"]
 additional-css = ["lang-switcher.css"]
-site-url = "/mini-claw-code/zh/"
+site-url = "/mini-claw-code/rust/zh/"
 git-repository-url = "https://github.com/dzungtri/mini-claw-code"
 git-repository-icon = "fab-github"
